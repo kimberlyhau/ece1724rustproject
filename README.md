@@ -104,8 +104,7 @@ We aim to begin writing our final report following the completion of Phase 2, an
 
 ### Feasibility
 The project scope is intentionally kept manageable, with each feature designed to be independent and incrementally implemented.  
-The core version (streaming inference, API, and basic chat handling) should be achievable within 3–4 weeks of part-time work and will have the focus of all three members.  
-Stretch goals can be explored once the minimum viable product is complete.  
+The core version (streaming inference, API, and basic chat handling) should be achievable within 3–4 weeks of part-time work and will have the focus of all three members. Stretch goals can be explored once the minimum viable product is complete.  
 
 This phased plan ensures that even if we face unexpected challenges while learning Rust, we can still deliver a working system that meets the course requirements while leaving room for extension if progress allows. As well, it ensures that we will have enough time to properly develop the final report and video demonstration.
 
