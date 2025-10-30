@@ -15,7 +15,7 @@ fn main() -> Result<()> {
     // let max_new_tokens = 16usize;
     let prompt = "<s>[INST] <<SYS>>You are a helpful assistant.<</SYS>> what is a large language model? [/INST]";
     let model_id = "TinyLlama/TinyLlama-1.1B-Chat-v1.0";
-    let max_new_tokens = 64;
+    let max_new_tokens = 256;
 
     let api = Api::new()?;
     let repo = api.repo(Repo::with_revision(
