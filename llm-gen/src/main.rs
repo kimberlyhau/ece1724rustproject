@@ -13,6 +13,8 @@ fn main() -> Result<()> {
     // let prompt = "what is an llm?";
     // let model_id = "HuggingFaceTB/SmolLM2-135M";
     // let max_new_tokens = 16usize;
+    
+    // the prompt needs to defined as per the models expected format
     let prompt = "<s>[INST] <<SYS>>You are a helpful assistant.<</SYS>> what is a large language model? [/INST]";
     let model_id = "TinyLlama/TinyLlama-1.1B-Chat-v1.0";
     let max_new_tokens = 256;
@@ -62,7 +64,7 @@ fn main() -> Result<()> {
     let llama = Llama::load(vb, &config)?;
 
     let mut stdout = io::stdout();
-    write!(stdout, "{prompt}")?;
+    write!(stdout, "prompt:  {prompt}")?;
     stdout.flush()?;
 
     let mut sampler = LogitsProcessor::from_sampling(
@@ -76,22 +78,29 @@ fn main() -> Result<()> {
     let mut ctx_index = 0usize;
 
     for step in 0..max_new_tokens {
-        let (context_size, offset) = if cache.use_kv_cache && step > 0 {
-            (1, ctx_index)
-        } else {
+        let (context_size, offset) = if !(cache.use_kv_cache && step > 0) {
+            // use full prompt on first pass to build KV cache
             (tokens.len(), 0)
+        } else {
+            // utilize KV cache so add single token context when generating tokens
+            (1, ctx_index)
         };
+        // ctx holds either the prompt for prefill 
+        // or the last token for incremental decoding
+        // for cached decoding the model only needs the new token so it can look up past state from the KV cache
         let ctx = &tokens[tokens.len().saturating_sub(context_size)..];
         let input = Tensor::new(ctx, &device)?.unsqueeze(0)?;
         let logits = llama.forward(&input, offset, &mut cache)?;
         let mut logits = logits.squeeze(0)?;
 
+        // penalize tokens we just emitted so sampling avoids getting stuck in repeats (e.g. "hello hello hello")
         if !tokens.is_empty() {
             let start = tokens.len().saturating_sub(64);
             logits =
                 candle_transformers::utils::apply_repeat_penalty(&logits, 1.1, &tokens[start..])?;
         }
-
+        
+        // sample the next token from the logits
         ctx_index += ctx.len();
         let next = sampler.sample(&logits)?;
         tokens.push(next);
@@ -102,9 +111,14 @@ fn main() -> Result<()> {
             }
         }
 
+        // push the generated/decoded token to the stream object and flush to stdout
+        
+        // stream object needed to convert token ids to strings
+        // token ids dont map 1:1 to utf-8 strings, so we need the stream object to handle producing strings as tokens are generated (buffer tokens until a valid utf-8 string can be produced)
+        // otherwise, we would need to wait until all tokens are generated to convert to string using tokenizer.decode
         if let Some(piece) = stream.next_token(next)? {
             write!(stdout, "{piece}")?;
-            stdout.flush()?;
+            stdout.flush()?; // so that the writes are not buffered, and sent to terminal immediately
         }
     }
 
