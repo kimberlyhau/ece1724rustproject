@@ -174,7 +174,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         KeyCode::Esc => app.input_mode = InputMode::Normal,
                         _ => {}
                     },
-                    InputMode::Editing => {}
+                    InputMode::Editing => {},
                 }
             }
         }
@@ -296,16 +296,19 @@ impl App {
 
     fn submit_message(&mut self, tx: mpsc::Sender<String>) {
         self.messages.push(self.input.clone());
+        let input = self.input.clone();
         self.input.clear();
         self.reset_cursor();
+        // eprintln!("Debug information: {:?}", input);
         tokio::spawn(async move {
-            run_llm(tx).await;
+            run_llm(tx, input).await;
+            // async_text_stream(tx, input);
         });
     }
 }
 
 /// async producer: simulates streaming text over time
-async fn async_text_stream(tx: mpsc::Sender<String>) {
+async fn async_text_stream(tx: mpsc::Sender<String>, input:String) {
     let text = "Streaming text from async tasks…\nThis is running in the background.";
     for c in text.chars() {
         tx.send(c.to_string()).await.ok();
@@ -313,15 +316,16 @@ async fn async_text_stream(tx: mpsc::Sender<String>) {
     }
 }
 
-async fn run_llm(tx: mpsc::Sender<String>) -> Result<()>{
+async fn run_llm(tx: mpsc::Sender<String>, input:String) -> Result<()>{
 // let prompt = "what is an llm?";
     // let model_id = "HuggingFaceTB/SmolLM2-135M";
     // let max_new_tokens = 16usize;
-    let prompt = "<s>[INST] <<SYS>>You are a helpful assistant.<</SYS>> what is a large language model? [/INST]";
+    // eprintln!("Debug information: {:?}", input);
+    let prompt = "<s>[INST] <<SYS>>You are a helpful assistant.<</SYS>> ".to_owned()+&input+"[/INST]";
+    // let prompt = format!("{} {} {}", "<s>[INST] <<SYS>>You are a helpful assistant.<</SYS>>", input, "[/INST]");
+
     let model_id = "TinyLlama/TinyLlama-1.1B-Chat-v1.0";
     let max_new_tokens = 256;
-
-    // let args = Args::parse();
 
     let api = Api::new()?;
     let repo = api.repo(Repo::with_revision(
@@ -341,7 +345,7 @@ async fn run_llm(tx: mpsc::Sender<String>) -> Result<()>{
     let tokenizer =
         Tokenizer::from_file(&tokenizer_path).map_err(|err| anyhow!("load tokenizer: {err}"))?;
     let mut tokens = tokenizer
-        .encode(prompt, true)
+        .encode(prompt.clone(), true)
         .map_err(anyhow::Error::msg)?
         .get_ids()
         .to_vec();
