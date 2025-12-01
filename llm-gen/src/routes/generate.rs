@@ -8,6 +8,7 @@ use axum::{
 };
 use serde_json::json;
 use tokio::sync::mpsc;
+use tokio::task;
 use tokio_stream::{wrappers::UnboundedReceiverStream, Stream, StreamExt};
 
 use crate::{
@@ -46,9 +47,13 @@ pub async fn generate(
         }
     }
 
-    // START GENERATION
+    // START GENERATION IN BLOCKING THREAD
     if !invalid {
-        start_generation(state, request, sender.clone());
+        let blocking_state = Arc::clone(&state);
+        let blocking_sender = sender.clone();
+        let _ = task::spawn_blocking(move || {
+            start_generation(blocking_state, request, blocking_sender);
+        });
     }
     // close sender used for validation
     drop(sender);
