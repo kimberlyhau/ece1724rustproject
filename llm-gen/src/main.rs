@@ -41,6 +41,7 @@ struct App {
 enum InputMode {
     Normal,
     Editing,
+    Processing,
 }
 
 #[tokio::main]
@@ -56,23 +57,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Channel for streaming text
     let (tx, mut rx) = mpsc::channel::<String>(100);
 
-    // Spawn async text producing task
-    // tokio::spawn(async move {
-    //     // async_text_stream(tx).await;
-    //     run_llm(tx).await;
-    // });
-
     let mut app = App::new();
 
     loop {
-        // Draw UI
-        // terminal.draw(|frame| {
-        //     let size = frame.size();
-        //     let paragraph = Paragraph::new(app.visible_text.clone())
-        //     .wrap(Wrap { trim: true })
-        //         .block(Block::default().borders(Borders::ALL).title("Async Stream Output"));
-        //     frame.render_widget(paragraph, size);
-        // })?;
         terminal.draw(|frame| {
             let vertical = Layout::vertical([
                 Constraint::Length(1),
@@ -102,6 +89,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     ],
                     Style::default(),
                 ),
+                InputMode::Processing => (
+                    vec![
+                        "Processing ".into(),
+                    ],
+                    Style::default(),
+                ),
             };
             let text = Text::from(Line::from(msg)).patch_style(style);
             let help_message = Paragraph::new(text);
@@ -110,6 +103,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .style(match app.input_mode {
                     InputMode::Normal => Style::default(),
                     InputMode::Editing => Style::default().fg(Color::Yellow),
+                    InputMode::Processing => Style::default(),
                 })
                 .block(Block::bordered().title("Input"));
             frame.render_widget(input, input_area);
@@ -127,6 +121,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     // Move one line down, from the border to the input line
                     input_area.y + 1,
                 )),
+                InputMode::Processing => {}
             }
 
             let messages: Vec<ListItem> = app
@@ -175,36 +170,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         _ => {}
                     },
                     InputMode::Editing => {},
+                    InputMode::Processing => {},
                 }
             }
         }
-        // if let Event::Key(key) = event::read()? {
-        //     match app.input_mode {
-        //         InputMode::Normal => match key.code {
-        //             KeyCode::Char('e') => {
-        //                 app.input_mode = InputMode::Editing;
-        //             }
-        //             KeyCode::Char('q') => {
-        //                 break;
-        //             }
-        //             _ => {}
-        //         },
-        //         InputMode::Editing if key.kind == KeyEventKind::Press => match key.code {
-        //             KeyCode::Enter => app.submit_message(),
-        //             KeyCode::Char(to_insert) => app.enter_char(to_insert),
-        //             KeyCode::Backspace => app.delete_char(),
-        //             KeyCode::Left => app.move_cursor_left(),
-        //             KeyCode::Right => app.move_cursor_right(),
-        //             KeyCode::Esc => app.input_mode = InputMode::Normal,
-        //             _ => {}
-        //         },
-        //         InputMode::Editing => {}
-        //     }
-        // }
 
         // Non-blocking receive from async task
         while let Ok(c) = rx.try_recv() {
-            app.push_str(c);
+            if c=="Thread work complete!"{
+                app.input_mode = InputMode::Normal;
+            }
+            else {
+                app.push_str(c);
+            }
         }
 
         // Tiny sleep to avoid hot loop
@@ -295,6 +273,7 @@ impl App {
     }
 
     fn submit_message(&mut self, tx: mpsc::Sender<String>) {
+        self.input_mode = InputMode::Processing;
         self.messages.push(self.input.clone());
         let input = self.input.clone();
         self.input.clear();
@@ -371,12 +350,6 @@ async fn run_llm(tx: mpsc::Sender<String>, input:String) -> Result<()>{
     let vb = unsafe { VarBuilder::from_mmaped_safetensors(&weight_paths, dtype, &device)? };
     let llama = Llama::load(vb, &config)?;
 
-    // let mut stdout = io::stdout();
-    // let mut buffer = Cursor::new(Vec::new());
-    // write!(buffer, "{prompt}")?;
-    // stdout.flush()?;
-    // let output_bytes = buffer.clone().into_inner();
-    // let mut output_string = String::from_utf8(prompt.into()).expect("Output was not valid UTF-8");
     tx.send(prompt.to_string()).await.ok();
 
     let mut sampler = LogitsProcessor::from_sampling(
@@ -417,26 +390,14 @@ async fn run_llm(tx: mpsc::Sender<String>, input:String) -> Result<()>{
         }
 
         if let Some(piece) = stream.next_token(next)? {
-            // write!(buffer, "{piece}")?;
-            // let output_bytes = buffer.clone().into_inner();
-            // output_string = String::from_utf8(output_bytes).expect("Output was not valid UTF-8");
-            tx.send(piece).await.ok();
+             tx.send(piece).await.ok();
             // stdout.flush()?;
         }
     }
 
     if let Some(rest) = stream.decode_rest()? {
-        // write!(buffer, "{rest}")?;
-        // let output_bytes = buffer.clone().into_inner();
-        // output_string = String::from_utf8(output_bytes).expect("Output was not valid UTF-8");
         tx.send(rest).await.ok();
     }
-    // writeln!(stdout)?;
-    // let output_bytes = buffer.into_inner();
-
-    // Convert the bytes to a String
-    // let output_string = String::from_utf8(output_bytes).expect("Output was not valid UTF-8");
-    // tx.send(output_string.trim().to_string()).await.ok();
-    // println!("Captured output:\n{}", output_string);
+    tx.send("Thread work complete!".to_string()).await.ok();
     Ok(())
 }
