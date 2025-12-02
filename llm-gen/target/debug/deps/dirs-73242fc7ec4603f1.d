@@ -1,8 +1,0 @@
-/Users/kimberlyhau/Documents/GitHub/ece1724rustproject/llm-gen/target/debug/deps/dirs-73242fc7ec4603f1.d: /Users/kimberlyhau/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/dirs-6.0.0/src/lib.rs /Users/kimberlyhau/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/dirs-6.0.0/src/mac.rs
-
-/Users/kimberlyhau/Documents/GitHub/ece1724rustproject/llm-gen/target/debug/deps/libdirs-73242fc7ec4603f1.rlib: /Users/kimberlyhau/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/dirs-6.0.0/src/lib.rs /Users/kimberlyhau/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/dirs-6.0.0/src/mac.rs
-
-/Users/kimberlyhau/Documents/GitHub/ece1724rustproject/llm-gen/target/debug/deps/libdirs-73242fc7ec4603f1.rmeta: /Users/kimberlyhau/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/dirs-6.0.0/src/lib.rs /Users/kimberlyhau/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/dirs-6.0.0/src/mac.rs
-
-/Users/kimberlyhau/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/dirs-6.0.0/src/lib.rs:
-/Users/kimberlyhau/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/dirs-6.0.0/src/mac.rs:
