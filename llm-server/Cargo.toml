@@ -1,5 +1,5 @@
 [package]
-name = "llm-gen"
+name = "llm-server"
 version = "0.1.0"
 edition = "2021"
 
