@@ -1,7 +1,22 @@
 [package]
-name = "llmapp"
+name = "llm-ui"
 version = "0.1.0"
-edition = "2024"
+edition = "2021"
+
+[features]
+default = []
+accelerate = [
+    "candle-core/accelerate",
+    "candle-nn/accelerate",
+    "candle-transformers/accelerate",
+    "candle-examples/accelerate",
+]
+metal = [
+    "candle-core/metal",
+    "candle-nn/metal",
+    "candle-transformers/metal",
+    "candle-examples/metal",
+]
 
 [dependencies]
 anyhow = "1.0"
@@ -19,4 +34,3 @@ tracing-subscriber = "0.3.20"
 tui = "0.19.0"
 tokio = { version = "1", features = ["full"] }
 futures = "0.3"
-
