@@ -15,6 +15,7 @@ use crate::{
     engine::{EventToServer, EXAMPLE_MODEL},
     state::AppState,
     types::GenerateRequest,
+    chat_history::add_message,
 };
 
 // axum handler that bridges HTTP requests with the blocking inference engine
@@ -52,6 +53,9 @@ pub async fn generate(
         let blocking_state = Arc::clone(&state);
         let blocking_sender = sender.clone();
         let _ = task::spawn_blocking(move || {
+            // store request in sqlite database
+            add_message(&blocking_state.db_conn.lock().unwrap(), request.username.clone(), 1, request.chat_id, &request.prompt).unwrap();
+
             start_generation(blocking_state, request, blocking_sender);
         });
     }

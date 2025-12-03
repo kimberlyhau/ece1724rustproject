@@ -2,6 +2,7 @@ mod engine;
 mod routes;
 mod state;
 mod types;
+mod chat_history;
 
 use std::sync::Arc;
 
@@ -9,6 +10,7 @@ use axum::{routing::get, routing::post, Router};
 use routes::generate::generate;
 use state::AppState;
 use tokio::net::TcpListener;
+
 
 async fn test() -> &'static str {
     "llm gen/streaming server is up and reachable"
@@ -18,7 +20,14 @@ async fn test() -> &'static str {
 async fn main() {
     // atomic ref count of app state for shared access across async tasks (if multiple clients send prompts)
     let engine = engine::InferenceEngine::new().expect("failed to initialize inference engine");
-    let state = Arc::new(AppState::new(engine));
+    
+    // initialize sqlite database to store chat history
+    let conn = chat_history::initialize_database().expect("failed to initialize sqlite database");
+    // test example user and model
+    chat_history::add_user(&conn, "Tester").unwrap();
+    chat_history::add_model(&conn, "TinyLlama-1.1B-Chat-v1.0").unwrap();
+    
+    let state = Arc::new(AppState::new(engine, conn));
 
     // axum router: test route and generation route
     let router = Router::new()
