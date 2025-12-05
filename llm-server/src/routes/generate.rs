@@ -10,12 +10,13 @@ use serde_json::json;
 use tokio::sync::mpsc;
 use tokio::task;
 use tokio_stream::{wrappers::UnboundedReceiverStream, Stream, StreamExt};
+use std::sync::Mutex;
 
 use crate::{
     engine::{EventToServer, EXAMPLE_MODEL},
     state::AppState,
     types::GenerateRequest,
-    chat_history::add_message,
+    chat_history::{add_message, add_user, next_chat_id, get_user_id},
 };
 
 // axum handler that bridges HTTP requests with the blocking inference engine
@@ -48,28 +49,45 @@ pub async fn generate(
         }
     }
 
+    add_user(&state.db_conn.lock().unwrap(), request.username.clone()).unwrap();
+    let user_id = get_user_id(&state.db_conn.lock().unwrap(), &request.username).unwrap();
+    let chat_id = next_chat_id(&state.db_conn.lock().unwrap(), user_id).unwrap();
+
     // START GENERATION IN BLOCKING THREAD
     if !invalid {
         let blocking_state = Arc::clone(&state);
         let blocking_sender = sender.clone();
+        let blocking_request = request.clone();
         let _ = task::spawn_blocking(move || {
             // store request in sqlite database
-            add_message(&blocking_state.db_conn.lock().unwrap(), request.username.clone(), 1, request.chat_id, &request.prompt).unwrap();
-
-            start_generation(blocking_state, request, blocking_sender);
+            add_message(&blocking_state.db_conn.lock().unwrap(), blocking_request.username.clone(), 1, chat_id, &blocking_request.prompt).unwrap();
+            start_generation(blocking_state, blocking_request, blocking_sender);
         });
     }
     // close sender used for validation
     drop(sender);
+    
+    let streaming_buffer = Arc::new(Mutex::new(String::new()));
+    let streaming_request = request.clone();
 
     // STREAM RESPONSES TO CLIENT
     // convert server events into SSE events (json payloads)
-    let sse_stream = UnboundedReceiverStream::new(receiver).map(|event| -> Result<Event, Error> {
+    let sse_stream = UnboundedReceiverStream::new(receiver).map(move |event| -> Result<Event, Error> {
+        let mut buffer = streaming_buffer.lock().unwrap();
+        // store generated tokens in buffer to store full response in database
         let payload = match event {
             EventToServer::Token { token, index } => {
+                buffer.push_str(&token);
                 json!({ "token": token, "index": index }).to_string()
             }
             EventToServer::Done { total_tokens } => {
+                add_message(
+                    &state.db_conn.lock().unwrap(), 
+                    streaming_request.username.clone(), 
+                    1,  // hardcoded to model 1 tiny llama ... for now
+                    chat_id,
+                    &buffer).unwrap();
+                buffer.clear();
                 json!({ "done": true, "total_tokens": total_tokens }).to_string()
             }
             EventToServer::Error { message } => json!({ "error": message }).to_string(),

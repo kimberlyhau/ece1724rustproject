@@ -1,8 +1,52 @@
-use rusqlite::{params, Connection, Result};
+use rusqlite::{Connection, Result, params};
 use std::error::Error;
+use serde::{Serialize, Deserialize};
+use axum::{
+    extract::State,
+    response::sse::{Event, Sse},
+    Json,
+};
+use std::sync::Arc;
 
-// function to create user
-pub fn add_user(conn: &Connection, name: &str) -> Result<()> {
+use tokio_stream::{Stream, wrappers::UnboundedReceiverStream, StreamExt};
+use crate::state::AppState;
+
+use serde_json::json;
+
+#[derive(Serialize, Deserialize, Clone)]
+pub struct FetchRequest {
+    pub username: String,
+    pub chat_id: i32,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub enum FetchResponse {
+    Success {messages: Vec<(i32, String, String)>},
+    Error {message: String},
+}
+
+pub fn get_user_id(conn: &Connection, name: &str) -> Result<i32> {
+    let user_id: i32 = conn.query_row(
+        "SELECT id FROM users WHERE name = ?1",
+        params![name],
+        |row| row.get(0),
+    )?;
+    Ok(user_id)
+}
+
+// function to create user if
+pub fn add_user(conn: &Connection, name: String) -> Result<()> {
+    // check if user already exists
+    let user_exists: bool = conn.query_row (
+        "SELECT EXISTS(SELECT 1 FROM users WHERE name = ?1)",
+        [name.as_str()],
+        |row| row.get(0),
+    )?;
+
+    if user_exists {
+        return Ok(());
+    }
+
     conn.execute(
         "INSERT INTO users (name) VALUES (?1)",
         params![name],
@@ -17,6 +61,15 @@ pub fn add_model(conn: &Connection, model_name: &str) -> Result<()> {
         params![model_name],
     )?;
     Ok(())
+}
+
+pub fn next_chat_id(conn: &Connection, user_id: i32) -> Result<i32> {
+    let next_id: i32 = conn.query_row(
+        "SELECT COALESCE(MAX(chat_id), 0) + 1 FROM chats WHERE user_id = ?1",
+        params![user_id],
+        |row| row.get(0),
+    )?;
+    Ok(next_id)
 }
 
 pub fn add_message(conn: &Connection, username: String, model_id: i32, chat_id: i32, message: &str) -> Result<()> {
@@ -58,6 +111,57 @@ pub fn retrieve_chat(conn: &Connection, user_id: i32, chat_id: i32) -> Result<Ve
         messages.push((message_id, message, timestamp));
     }
     Ok(messages)
+}
+
+pub async fn fetch_chat_history(
+    State(state): State<Arc<AppState>>,
+    Json(request): Json<FetchRequest>,
+) -> Json<FetchResponse> {
+    let conn = state.db_conn.lock().unwrap();
+    // to validate fetch request, user exists in db, with valid chat id
+    
+    let user_id: i32 = match conn.query_row(
+        "SELECT id FROM users WHERE name = ?1",
+        params![request.username.as_str()],
+        |row| row.get(0),
+    ) {
+        Ok(id) => id,
+        Err(_) => {
+            return Json(FetchResponse::Error{
+                message : format!(
+                    "no user exists with that name",
+                ),
+            });
+        }
+    };
+    let chat_id: i32 = match conn.query_row(
+        "SELECT DISTINCT chat_id FROM chats WHERE user_id = ?1 AND chat_id = ?2",
+        params![user_id, request.chat_id],
+        |row| row.get(0),
+    ) {
+        Ok(id) => id,
+        Err(_) => {
+            return Json(FetchResponse::Error{
+                message : format!(
+                    "no chat history found for user `{}` with chat ID `{}`",
+                    request.username, request.chat_id
+                ),
+            });
+        }
+    };
+
+    let messages = match retrieve_chat(&conn, user_id, chat_id) {
+        Ok(msgs) => msgs,
+        Err(_) => {
+            return Json(FetchResponse::Error{
+                message : format!(
+                    "failed to retrieve chat history",
+                )
+            });
+        }
+    };
+
+    Json(FetchResponse::Success { messages } )
 }
 
 pub fn delete_chat(conn: &Connection, user_id: i32, chat_id: i32) -> Result<()> {
