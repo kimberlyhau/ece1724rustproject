@@ -9,6 +9,8 @@ use candle_transformers::models::llama::{Llama, LlamaConfig};
 use hf_hub::{api::sync::Api, Repo, RepoType};
 use std::io::{self, Write};
 use tokenizers::Tokenizer;
+use itertools::Itertools;
+use itertools::EitherOrBoth::{Both, Left, Right};
 // use std::error::Error;
 // use std::{io};
 use crossterm::{
@@ -28,7 +30,7 @@ use tokio::time::{sleep, Duration};
 use ratatui::widgets::Wrap;
 
 struct App {
-    visible_text: String,
+    visible_text: Vec<String>,
     input: String,
     /// Position of cursor in the editor area.
     character_index: usize,
@@ -44,6 +46,8 @@ enum InputMode {
     Processing,
 }
 
+
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     color_eyre::install()?;
@@ -58,16 +62,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let (tx, mut rx) = mpsc::channel::<String>(100);
 
     let mut app = App::new();
-
+    let user:&str = "You: ";
+    let llm:&str = "LLM: ";
+    let mut receiving = String::new();
     loop {
         terminal.draw(|frame| {
             let vertical = Layout::vertical([
                 Constraint::Length(1),
+                // Constraint::Min(1),
+                Constraint::Min(1),
                 Constraint::Length(3),
-                Constraint::Min(1),
-                Constraint::Min(1),
             ]);
-            let [help_area, input_area, messages_area, response_area] = vertical.areas(frame.area());
+            let [help_area, response_area, input_area] = vertical.areas(frame.area());
             let (msg, style) = match app.input_mode {
                 InputMode::Normal => (
                     vec![
@@ -75,7 +81,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         "q".bold(),
                         " to exit, ".into(),
                         "e".bold(),
-                        " to start editing.".bold(),
+                        " to enter a prompt.".bold(),
                     ],
                     Style::default().add_modifier(Modifier::RAPID_BLINK),
                 ),
@@ -99,13 +105,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             let text = Text::from(Line::from(msg)).patch_style(style);
             let help_message = Paragraph::new(text);
             frame.render_widget(help_message, help_area);
-            let input = Paragraph::new(app.input.as_str())
-                .style(match app.input_mode {
-                    InputMode::Normal => Style::default(),
-                    InputMode::Editing => Style::default().fg(Color::Yellow),
-                    InputMode::Processing => Style::default(),
-                })
-                .block(Block::bordered().title("Input"));
+
+            let input =  match app.input_mode {
+                InputMode::Processing => (Paragraph::new("Wait for response...")
+                    .style(Style::default())
+                    .block(Block::bordered().title("Input"))),
+                InputMode::Normal => (Paragraph::new("Enter a prompt!")
+                    .style(Style::default())
+                    .block(Block::bordered().title("Input"))),
+                InputMode::Editing => (
+                    Paragraph::new(app.input.as_str())
+                    .style(Style::default().fg(Color::Yellow))
+                    .block(Block::bordered().title("Input"))),
+            };
             frame.render_widget(input, input_area);
             match app.input_mode {
             // Hide the cursor. `Frame` does this by default, so we don't need to do anything here
@@ -124,31 +136,31 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 InputMode::Processing => {}
             }
 
-            let messages: Vec<ListItem> = app
-                .messages
-                .iter()
-                .enumerate()
-                .map(|(i, m)| {
-                    let content = Line::from(Span::raw(format!("{i}: {m}")));
-                    ListItem::new(content)
-                })
-                .collect();
-            let messages = List::new(messages).block(Block::bordered().title("Messages"));
-            frame.render_widget(messages, messages_area);
-            let paragraph = Paragraph::new(app.visible_text.clone())
-            .wrap(Wrap { trim: true })
-            .block(Block::default().borders(Borders::ALL).title("Async Stream Output"));
-
-            frame.render_widget(paragraph, response_area);
+            let mut messages=Vec::new();
+            for item in app.messages.iter().zip_longest(app.visible_text.iter()) {
+                match item {
+                    Both(a, b) => {
+                        messages.push(ListItem::new(user.to_string()+&a));
+                        messages.push(ListItem::new(llm.to_string()+&b));
+                    }
+                    Left(a) => messages.push(ListItem::new(user.to_string()+&a)),
+                    Right(b) => messages.push(ListItem::new(llm.to_string()+&b)),
+                }
+            }
+            if !receiving.is_empty(){
+                messages.push(ListItem::new(llm.to_string()+&receiving));
+            }
+            let message = List::new(messages).block(Block::bordered().title("Messages"));
+            frame.render_widget(message, response_area);
         })?;
 
 
         // Handle keypress (quit on q)
         if event::poll(Duration::from_millis(1))? {
             if let Event::Key(key) = event::read()? {
-                if key.code == KeyCode::Char('q') {
-                    break;
-                }
+                // if key.code == KeyCode::Char('q') {
+                //     break;
+                // }
                 match app.input_mode {
                     InputMode::Normal => match key.code {
                         KeyCode::Char('e') => {
@@ -174,14 +186,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
             }
         }
-
+        
         // Non-blocking receive from async task
         while let Ok(c) = rx.try_recv() {
             if c=="Thread work complete!"{
                 app.input_mode = InputMode::Normal;
+                app.visible_text.push(receiving);
+                receiving = "".to_string();
             }
             else {
-                app.push_str(c);
+                // app.push_str(c);
+                receiving.push_str(&c);
             }
         }
 
@@ -202,19 +217,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 impl App {
     fn new() -> Self {
-        Self { visible_text: String::new(),
+        Self { visible_text: Vec::new(),
         input: String::new(),
         input_mode: InputMode::Normal,
         messages: Vec::new(),
         character_index: 0, }
     }
 
-    fn push_char(&mut self, c: char) {
-        self.visible_text.push(c);
-    }
-    fn push_str(&mut self, c: String) {
-        self.visible_text.push_str(&c);
-    }
+    // fn push_char(&mut self, c: char) {
+    //     self.visible_text.push(c);
+    // }
+    // fn push_str(&mut self, c: String) {
+    //     self.visible_text.push_str(&c);
+    // }
     fn move_cursor_left(&mut self) {
         let cursor_moved_left = self.character_index.saturating_sub(1);
         self.character_index = self.clamp_cursor(cursor_moved_left);
@@ -278,9 +293,10 @@ impl App {
         let input = self.input.clone();
         self.input.clear();
         self.reset_cursor();
+        // self.visible_text.push_str(&self.input.clone());
         // eprintln!("Debug information: {:?}", input);
         tokio::spawn(async move {
-            run_llm(tx, input).await;
+            let _ = run_llm(tx, input).await;
             // async_text_stream(tx, input);
         });
     }
@@ -296,108 +312,116 @@ async fn async_text_stream(tx: mpsc::Sender<String>, input:String) {
 }
 
 async fn run_llm(tx: mpsc::Sender<String>, input:String) -> Result<()>{
+    let text = "Streaming text from async tasks…\nThis is running in the background.";
+    for c in text.chars() {
+        // eprintln!("{c}");
+        tx.send(c.to_string()).await.ok();
+        sleep(Duration::from_millis(40)).await;
+    }
+    tx.send("Thread work complete!".to_string()).await.ok();
+    Ok(())
 // let prompt = "what is an llm?";
     // let model_id = "HuggingFaceTB/SmolLM2-135M";
     // let max_new_tokens = 16usize;
     // eprintln!("Debug information: {:?}", input);
-    let prompt = "<s>[INST] <<SYS>>You are a helpful assistant.<</SYS>> ".to_owned()+&input+"[/INST]";
-    // let prompt = format!("{} {} {}", "<s>[INST] <<SYS>>You are a helpful assistant.<</SYS>>", input, "[/INST]");
+    // let prompt = "<s>[INST] <<SYS>>You are a helpful assistant.<</SYS>> ".to_owned()+&input+"[/INST]";
+    // // let prompt = format!("{} {} {}", "<s>[INST] <<SYS>>You are a helpful assistant.<</SYS>>", input, "[/INST]");
 
-    let model_id = "TinyLlama/TinyLlama-1.1B-Chat-v1.0";
-    let max_new_tokens = 256;
+    // let model_id = "TinyLlama/TinyLlama-1.1B-Chat-v1.0";
+    // let max_new_tokens = 256;
 
-    let api = Api::new()?;
-    let repo = api.repo(Repo::with_revision(
-        model_id.to_string(),
-        RepoType::Model,
-        "main".to_string(),
-    ));
+    // let api = Api::new()?;
+    // let repo = api.repo(Repo::with_revision(
+    //     model_id.to_string(),
+    //     RepoType::Model,
+    //     "main".to_string(),
+    // ));
 
-    let tokenizer_path = repo
-        .get("tokenizer.json")
-        .context("download tokenizer.json")?;
-    let config_path = repo.get("config.json").context("download config.json")?;
-    let weight_paths = candle_examples::hub_load_safetensors(&repo, "model.safetensors.index.json")
-        .or_else(|_| repo.get("model.safetensors").map(|path| vec![path]))
-        .context("download model weights")?;
+    // let tokenizer_path = repo
+    //     .get("tokenizer.json")
+    //     .context("download tokenizer.json")?;
+    // let config_path = repo.get("config.json").context("download config.json")?;
+    // let weight_paths = candle_examples::hub_load_safetensors(&repo, "model.safetensors.index.json")
+    //     .or_else(|_| repo.get("model.safetensors").map(|path| vec![path]))
+    //     .context("download model weights")?;
 
-    let tokenizer =
-        Tokenizer::from_file(&tokenizer_path).map_err(|err| anyhow!("load tokenizer: {err}"))?;
-    let mut tokens = tokenizer
-        .encode(prompt.clone(), true)
-        .map_err(anyhow::Error::msg)?
-        .get_ids()
-        .to_vec();
-    let mut stream = TokenOutputStream::new(tokenizer);
+    // let tokenizer =
+    //     Tokenizer::from_file(&tokenizer_path).map_err(|err| anyhow!("load tokenizer: {err}"))?;
+    // let mut tokens = tokenizer
+    //     .encode(prompt.clone(), true)
+    //     .map_err(anyhow::Error::msg)?
+    //     .get_ids()
+    //     .to_vec();
+    // let mut stream = TokenOutputStream::new(tokenizer);
 
-    #[cfg(feature = "metal")]
-    let device = match Device::new_metal(0) {
-        Ok(device) => device,
-        Err(err) => {
-            eprintln!("Metal unavailable ({err}), falling back to CPU.");
-            Device::Cpu
-        }
-    };
-    #[cfg(not(feature = "metal"))]
-    let device = Device::Cpu;
-    let dtype = DType::F32;
+    // #[cfg(feature = "metal")]
+    // let device = match Device::new_metal(0) {
+    //     Ok(device) => device,
+    //     Err(err) => {
+    //         eprintln!("Metal unavailable ({err}), falling back to CPU.");
+    //         Device::Cpu
+    //     }
+    // };
+    // #[cfg(not(feature = "metal"))]
+    // let device = Device::Cpu;
+    // let dtype = DType::F32;
 
-    let config: LlamaConfig =
-        serde_json::from_slice(&std::fs::read(config_path)?).context("parse config.json")?;
-    let config = config.into_config(false);
-    let mut cache = llama_model::Cache::new(true, dtype, &config, &device)?;
+    // let config: LlamaConfig =
+    //     serde_json::from_slice(&std::fs::read(config_path)?).context("parse config.json")?;
+    // let config = config.into_config(false);
+    // let mut cache = llama_model::Cache::new(true, dtype, &config, &device)?;
 
-    let vb = unsafe { VarBuilder::from_mmaped_safetensors(&weight_paths, dtype, &device)? };
-    let llama = Llama::load(vb, &config)?;
+    // let vb = unsafe { VarBuilder::from_mmaped_safetensors(&weight_paths, dtype, &device)? };
+    // let llama = Llama::load(vb, &config)?;
 
-    tx.send(prompt.to_string()).await.ok();
+    // tx.send(prompt.to_string()).await.ok();
 
-    let mut sampler = LogitsProcessor::from_sampling(
-        42,
-        Sampling::TopP {
-            p: 0.9,
-            temperature: 0.7,
-        },
-    );
-    let eos_token = stream.get_token("</s>");
-    let mut ctx_index = 0usize;
+    // let mut sampler = LogitsProcessor::from_sampling(
+    //     42,
+    //     Sampling::TopP {
+    //         p: 0.9,
+    //         temperature: 0.7,
+    //     },
+    // );
+    // let eos_token = stream.get_token("</s>");
+    // let mut ctx_index = 0usize;
 
-    for step in 0..max_new_tokens {
-        let (context_size, offset) = if cache.use_kv_cache && step > 0 {
-            (1, ctx_index)
-        } else {
-            (tokens.len(), 0)
-        };
-        let ctx = &tokens[tokens.len().saturating_sub(context_size)..];
-        let input = Tensor::new(ctx, &device)?.unsqueeze(0)?;
-        let logits = llama.forward(&input, offset, &mut cache)?;
-        let mut logits = logits.squeeze(0)?;
+    // for step in 0..max_new_tokens {
+    //     let (context_size, offset) = if cache.use_kv_cache && step > 0 {
+    //         (1, ctx_index)
+    //     } else {
+    //         (tokens.len(), 0)
+    //     };
+    //     let ctx = &tokens[tokens.len().saturating_sub(context_size)..];
+    //     let input = Tensor::new(ctx, &device)?.unsqueeze(0)?;
+    //     let logits = llama.forward(&input, offset, &mut cache)?;
+    //     let mut logits = logits.squeeze(0)?;
 
-        if !tokens.is_empty() {
-            let start = tokens.len().saturating_sub(64);
-            logits =
-                candle_transformers::utils::apply_repeat_penalty(&logits, 1.1, &tokens[start..])?;
-        }
+    //     if !tokens.is_empty() {
+    //         let start = tokens.len().saturating_sub(64);
+    //         logits =
+    //             candle_transformers::utils::apply_repeat_penalty(&logits, 1.1, &tokens[start..])?;
+    //     }
 
-        ctx_index += ctx.len();
-        let next = sampler.sample(&logits)?;
-        tokens.push(next);
+    //     ctx_index += ctx.len();
+    //     let next = sampler.sample(&logits)?;
+    //     tokens.push(next);
 
-        if let Some(eos) = eos_token {
-            if next == eos {
-                break;
-            }
-        }
+    //     if let Some(eos) = eos_token {
+    //         if next == eos {
+    //             break;
+    //         }
+    //     }
 
-        if let Some(piece) = stream.next_token(next)? {
-             tx.send(piece).await.ok();
-            // stdout.flush()?;
-        }
-    }
+    //     if let Some(piece) = stream.next_token(next)? {
+    //          tx.send(piece).await.ok();
+    //         // stdout.flush()?;
+    //     }
+    // }
 
-    if let Some(rest) = stream.decode_rest()? {
-        tx.send(rest).await.ok();
-    }
-    tx.send("Thread work complete!".to_string()).await.ok();
-    Ok(())
+    // if let Some(rest) = stream.decode_rest()? {
+    //     tx.send(rest).await.ok();
+    // }
+    // tx.send("Thread work complete!".to_string()).await.ok();
+    // Ok(())
 }

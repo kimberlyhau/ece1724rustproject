@@ -1658,6 +1658,7 @@ dependencies = [
  "crossterm 0.29.0",
  "futures",
  "hf-hub",
+ "itertools 0.14.0",
  "ratatui",
  "serde_json",
  "tokenizers",
