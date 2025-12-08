@@ -337,7 +337,7 @@ async fn run_llm(tx: mpsc::Sender<String>, input:String) -> Result<()>{
     let client = Client::new();
     let response = client
         .post(&prompt_post_url)
-        .json(&json!({ "prompt": prompt , "username": "Tester"}))
+        .json(&json!({ "prompt": prompt , "username": "Tester", "chat_id": 3}))
         .send()
         .await?;
 

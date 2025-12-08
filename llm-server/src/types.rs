@@ -15,6 +15,9 @@ pub struct GenerateRequest {
 
     #[serde(default)]
     pub username: String,
+
+    #[serde(default)]
+    pub chat_id: Option<i32>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
