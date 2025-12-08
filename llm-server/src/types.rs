@@ -12,6 +12,9 @@ pub struct GenerateRequest {
     #[serde(default)]
     // params that control llm gen
     pub params: GenerationParams,
+
+    #[serde(default)]
+    pub username: String,
 }
 
 #[derive(Debug, Clone, Deserialize)]

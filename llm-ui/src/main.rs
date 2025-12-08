@@ -35,6 +35,7 @@ struct App {
 enum InputMode {
     Normal,
     Editing,
+    Fetching,
     Processing,
 }
 
@@ -69,7 +70,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         "q".bold(),
                         " to exit, ".into(),
                         "e".bold(),
-                        " to start editing.".bold(),
+                        " to start editing, ".into(),
+                        "r".bold(),
+                        " to resume last chat.".into(),
                     ],
                     Style::default().add_modifier(Modifier::RAPID_BLINK),
                 ),
@@ -80,6 +83,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         " to stop editing, ".into(),
                         "Enter".bold(),
                         " to record the message".into(),
+                    ],
+                    Style::default(),
+                ),
+                InputMode::Fetching => (
+                    vec![
+                        "Enter chat ID to resume ".into(),
                     ],
                     Style::default(),
                 ),
@@ -97,6 +106,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .style(match app.input_mode {
                     InputMode::Normal => Style::default(),
                     InputMode::Editing => Style::default().fg(Color::Yellow),
+                    InputMode::Fetching => Style::default().fg(Color::Cyan),
                     InputMode::Processing => Style::default(),
                 })
                 .block(Block::bordered().title("Input"));
@@ -113,6 +123,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     // This position is can be controlled via the left and right arrow key
                     input_area.x + app.character_index as u16 + 1,
                     // Move one line down, from the border to the input line
+                    input_area.y + 1,
+                )),
+                InputMode::Fetching => frame.set_cursor_position(Position::new(
+                    input_area.x + app.character_index as u16 + 1,
                     input_area.y + 1,
                 )),
                 InputMode::Processing => {}
@@ -151,6 +165,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         KeyCode::Char('q') => {
                             break;
                         }
+                        KeyCode::Char('r') => {
+                            app.input_mode = InputMode::Fetching;
+                        }
                         _ => {}
                     },
                     InputMode::Editing if key.kind == KeyEventKind::Press => match key.code {
@@ -163,7 +180,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         KeyCode::Esc => app.input_mode = InputMode::Normal,
                         _ => {}
                     },
+                    InputMode::Fetching if key.kind == KeyEventKind::Press => match key.code {
+                        KeyCode:: Enter => {app.fetch_chat(tx.clone())},
+                        KeyCode:: Char(to_insert) => app.enter_char(to_insert),
+                        KeyCode:: Backspace => app.delete_char(),
+                        KeyCode:: Left => app.move_cursor_left(),
+                        KeyCode:: Right => app.move_cursor_right(),
+                        KeyCode:: Esc => app.input_mode = InputMode::Normal,
+                        _ => {}
+                    }
                     InputMode::Editing => {},
+                    InputMode::Fetching => {},
                     InputMode::Processing => {},
                 }
             }
@@ -278,6 +305,17 @@ impl App {
             // async_text_stream(tx, input);
         });
     }
+
+    fn fetch_chat(&mut self, tx: mpsc::Sender<String>) {
+        self.input_mode = InputMode::Processing;
+        self.messages.push("Fetching chat history for chat ID: ".to_string()+&self.input);
+        let input = self.input.clone();
+        self.input.clear();
+        self.reset_cursor();
+        tokio::spawn(async move {
+            run_database(tx, input).await;
+        });
+    }
 }
 
 // Struct for deserializing server responses
@@ -299,7 +337,7 @@ async fn run_llm(tx: mpsc::Sender<String>, input:String) -> Result<()>{
     let client = Client::new();
     let response = client
         .post(&prompt_post_url)
-        .json(&json!({ "prompt": prompt }))
+        .json(&json!({ "prompt": prompt , "username": "Tester"}))
         .send()
         .await?;
 
@@ -330,6 +368,42 @@ async fn run_llm(tx: mpsc::Sender<String>, input:String) -> Result<()>{
             }
         }
     }
+    tx.send("Thread work complete!".to_string()).await.ok();
+    Ok(())
+}
+
+
+#[derive(Debug, Deserialize)]
+enum FetchResponses {
+    Success {messages: Vec<(i32, String, String)>},
+    Error {message: String},
+}
+
+async fn run_database(tx: mpsc::Sender<String>, input:String) -> Result<()> {
+    let chat_id: i32 = input.trim().parse().unwrap_or(0);
+
+    let addr = "127.0.0.1:4000";
+    let prompt_post_url = format!("http://{addr}/fetch");
+    let client = Client::new();
+    let response = client
+        .post(&prompt_post_url)
+        .json(&json!({ "username": "Tester", "chat_id": chat_id}))
+        .send()
+        .await?;
+    let messages = response.json::<FetchResponses>().await?;
+
+    match messages {
+        FetchResponses::Success {messages} => {
+            for (msg_id, msg, timestamp) in messages {
+                let formatted_message = format!("[{}] {}: {}\n", msg_id, timestamp, msg);
+                tx.send(formatted_message).await.ok();
+            }
+        },
+        FetchResponses::Error {message} => {
+            tx.send(format!("Error fetching chat history: {}", message)).await.ok();
+        }
+    }
+    
     tx.send("Thread work complete!".to_string()).await.ok();
     Ok(())
 }
