@@ -20,10 +20,11 @@ use crossterm::{
 };
 use ratatui::Terminal;
 use ratatui::{
-    layout::{Constraint, Layout, Position},
+    layout::{Constraint, Layout, Position, Margin, Rect, Direction},
     style::{Color, Modifier, Style, Stylize},
     text::{Line, Span, Text},
-    widgets::{Block, List, ListItem, Borders, Paragraph},
+    widgets::{Block, List, ListItem, Borders, Paragraph,Scrollbar, ScrollbarOrientation, ScrollbarState,
+        StatefulWidget,},
 };
 use tokio::sync::mpsc;
 use tokio::time::{sleep, Duration};
@@ -65,6 +66,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let user:&str = "You: ";
     let llm:&str = "LLM: ";
     let mut receiving = String::new();
+
+    let mut scroll_offset: u16 = 0;
     loop {
         terminal.draw(|frame| {
             let vertical = Layout::vertical([
@@ -74,6 +77,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 Constraint::Length(3),
             ]);
             let [help_area, response_area, input_area] = vertical.areas(frame.area());
+
+            let horizontal = Layout::default()
+                .direction(Direction::Horizontal)
+                .constraints([Constraint::Percentage(95), Constraint::Percentage(5)].as_ref())
+                .split(response_area);
+
+            let chat_area = horizontal[0];
+            let scrollbar_area = horizontal[1];
+
             let (msg, style) = match app.input_mode {
                 InputMode::Normal => (
                     vec![
@@ -102,8 +114,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     Style::default(),
                 ),
             };
-            let text = Text::from(Line::from(msg)).patch_style(style);
-            let help_message = Paragraph::new(text);
+            let t = Text::from(Line::from(msg)).patch_style(style);
+            let help_message = Paragraph::new(t);
             frame.render_widget(help_message, help_area);
 
             let input =  match app.input_mode {
@@ -136,26 +148,58 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 InputMode::Processing => {}
             }
 
-            let mut messages=Vec::new();
+            // let mut messages=Vec::new();
+            // for item in app.messages.iter().zip_longest(app.visible_text.iter()) {
+            //     match item {
+            //         Both(a, b) => {
+            //             messages.push(ListItem::new(user.to_string()+&a));
+            //             messages.push(ListItem::new(llm.to_string()+&b));
+            //         }
+            //         Left(a) => messages.push(ListItem::new(user.to_string()+&a)),
+            //         Right(b) => messages.push(ListItem::new(llm.to_string()+&b)),
+            //     }
+            // }
+            // if !receiving.is_empty(){
+            //     messages.push(ListItem::new(llm.to_string()+&receiving));
+            // }
+            // let message = List::new(messages).block(Block::bordered().title("Messages"));
+            // frame.render_widget(message, response_area);
+
+            let mut messages = "".to_string();
             for item in app.messages.iter().zip_longest(app.visible_text.iter()) {
                 match item {
                     Both(a, b) => {
-                        messages.push(ListItem::new(user.to_string()+&a));
-                        messages.push(ListItem::new(llm.to_string()+&b));
+                        // messages.push_str(user.to_string()+&a+"\n".to_string());
+                        // messages.push_str(llm.to_string()+&b+"\n".to_string());
+                        messages+=&format!("{} {}\n",user, a);
+                        messages+=&format!("{} {}\n",llm, b);
                     }
-                    Left(a) => messages.push(ListItem::new(user.to_string()+&a)),
-                    Right(b) => messages.push(ListItem::new(llm.to_string()+&b)),
+                    Left(a) => messages+=&format!("{} {}\n",user, a),//messages.push_str(user.to_string()+&a+"\n".to_string()),
+                    Right(b) => messages+=&format!("{} {}\n",llm, b),//messages.push_str(llm.to_string()+&b+"\n".to_string()),
                 }
             }
             if !receiving.is_empty(){
-                messages.push(ListItem::new(llm.to_string()+&receiving));
+                messages+=&format!("{} {}",llm, receiving);
             }
-            let message = List::new(messages).block(Block::bordered().title("Messages"));
-            frame.render_widget(message, response_area);
+
+            // Count total wrapped lines
+            let total_lines = count_wrapped_lines(&messages, chat_area.width)+2;
+
+            // Clamp scroll
+            scroll_offset = scroll_offset.min(total_lines.saturating_sub(chat_area.height));
+
+            let text = Text::from(messages);
+            let paragraph = Paragraph::new(text.clone())
+                .block(Block::default().borders(Borders::ALL).title("Chat"))
+                .wrap(Wrap { trim: false })
+                .scroll((scroll_offset, 0));
+
+            frame.render_widget(paragraph, chat_area);
+            draw_scrollbar(frame, scrollbar_area, scroll_offset, total_lines, chat_area.height);
+
         })?;
 
 
-        // Handle keypress (quit on q)
         if event::poll(Duration::from_millis(1))? {
             if let Event::Key(key) = event::read()? {
                 // if key.code == KeyCode::Char('q') {
@@ -166,6 +210,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         KeyCode::Char('e') => {
                             app.input_mode = InputMode::Editing;
                         }
+                        KeyCode::Up => scroll_offset = scroll_offset.saturating_sub(1),
+                        KeyCode::Down => scroll_offset = scroll_offset.saturating_add(1),
+                        KeyCode::PageUp => scroll_offset = scroll_offset.saturating_sub(5),
+                        KeyCode::PageDown => scroll_offset = scroll_offset.saturating_add(5),
                         KeyCode::Char('q') => {
                             break;
                         }
@@ -213,6 +261,55 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     Ok(())
 }
+
+/// Count number of wrapped lines for given text and width
+fn count_wrapped_lines(text: &str, width: u16) -> u16 {
+    let width = width as usize;
+    let mut lines = 0;
+
+    for raw_line in text.lines() {
+        let mut remaining = raw_line.to_string(); // use String
+        while !remaining.is_empty() {
+            let take = std::cmp::min(width, remaining.chars().count());
+            remaining = remaining.chars().skip(take).collect();
+            lines += 1;
+        }
+    }
+
+    lines
+}
+
+/// Draw vertical scrollbar
+fn draw_scrollbar(
+    f: &mut ratatui::Frame,
+    area: Rect,
+    scroll: u16,
+    total_lines: u16,
+    viewport_height: u16,
+) {
+    if total_lines <= viewport_height {
+        return;
+    }
+
+    let scrollbar_height = std::cmp::max(1, viewport_height * viewport_height / total_lines);
+    let max_scroll = total_lines.saturating_sub(viewport_height);
+    let scroll_pos = if max_scroll > 0 {
+        scroll * (viewport_height - scrollbar_height) / max_scroll
+    } else {
+        0
+    };
+
+    for i in 0..scrollbar_height {
+        let y = area.y + scroll_pos + i;
+        if y < area.y + area.height {
+            f.render_widget(
+                Paragraph::new("█").style(Style::default().fg(Color::Gray)),
+                Rect { x: area.x, y, width: 1, height: 1 },
+            );
+        }
+    }
+}
+
 
 
 impl App {
