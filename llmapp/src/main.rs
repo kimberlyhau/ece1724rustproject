@@ -1,5 +1,4 @@
 use std::io;
-use std::time::{Duration, Instant};
 use crossterm::{
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
@@ -8,91 +7,161 @@ use crossterm::{
 use ratatui::{
     backend::CrosstermBackend,
     Terminal,
-    layout::{Constraint, Direction, Layout, Rect},
-    widgets::{Block, Borders, Paragraph, Wrap},
+    layout::{Constraint, Layout, Direction},
     style::{Color, Style},
-    text::Text,
+    widgets::{Block, Borders, List, ListItem, ListState},
+    text::{Line, Span, Text},
 };
+use ratatui::widgets::Paragraph;
 
 fn main() -> Result<(), io::Error> {
-    // Terminal setup
     enable_raw_mode()?;
     let mut stdout = io::stdout();
     execute!(stdout, EnterAlternateScreen)?;
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
 
-    // Initial text
-    let mut text_content = String::from(
-        "Welcome! This is a scrollable paragraph.\nScroll manually or wait for new text to appear...\n",
-    );
+    // Menu options and selected flags
+    let options = vec![
+    Color::Red,
+    Color::Green,
+    Color::Yellow,
+    Color::Blue,
+    Color::Magenta,
+    Color::Cyan,
+    Color::Gray,
+    Color::LightRed,
+    Color::LightGreen,
+    Color::LightYellow,
+    Color::LightBlue,
+    Color::LightMagenta,
+    Color::LightCyan,
+    Color::White,
+    ];
+    let mut selected_flags = vec![false; options.len()];
 
-    let mut scroll_offset: u16 = 0;
-    let mut last_update = Instant::now();
+    let mut state = ListState::default();
+    state.select(Some(0));
+    let mut user_colour_pick:Option<Color> = None;
+    let mut llm_colour_pick:Option<Color> = None;
 
     loop {
         terminal.draw(|f| {
             let size = f.size();
+            let vertical = Layout::vertical([
+                Constraint::Min(1),
+                Constraint::Length(5),
+            ]).split(size);
 
-            // Vertical split: chat area + help
-            let vertical_chunks = Layout::default()
-                .direction(Direction::Vertical)
-                .constraints([Constraint::Percentage(90), Constraint::Length(3)].as_ref())
-                .split(size);
+            let list_area = vertical[0];
+            let display_area = vertical[1];
 
-            let chat_area = vertical_chunks[0];
-            let help_area = vertical_chunks[1];
 
-            // Horizontal split for paragraph + scrollbar
             let chunks = Layout::default()
-                .direction(Direction::Horizontal)
-                .constraints([Constraint::Percentage(95), Constraint::Percentage(5)].as_ref())
-                .split(chat_area);
+                .direction(Direction::Vertical)
+                .constraints([Constraint::Percentage(100)].as_ref())
+                .split(list_area);
 
-            let paragraph_area = chunks[0];
-            let scrollbar_area = chunks[1];
+            let items: Vec<ListItem> = options
+                .iter()
+                .enumerate()
+                .map(|(i, &opt)| {
+                    let style = if selected_flags[i] {
+                        Style::default().fg(Color::DarkGray)
+                    } else {
+                        Style::default().fg(opt)
+                    };
+                    ListItem::new(opt.to_string()).style(style)
+                })
+                .collect();
 
-            // Count wrapped lines
-            let total_lines = count_wrapped_lines(&text_content, paragraph_area.width);
+            let list = List::new(items)
+                .block(Block::default().borders(Borders::ALL).title(
+                    match selected_flags.iter().filter(|&n| *n == true).count(){
+                        0 => "Select a Colour for You",
+                        _ => "Select a Colour for LLM",
+                    }))
+                .highlight_style(Style::default().bg(Color::Blue).fg(Color::White))
+                .highlight_symbol(">> ");
 
-            // Auto-scroll if we are at the bottom
-            if scroll_offset + paragraph_area.height >= total_lines {
-                scroll_offset = total_lines.saturating_sub(paragraph_area.height);
-            }
+            f.render_stateful_widget(list, list_area, &mut state);
+            let help = Paragraph::new(
+                    // if let Some(mut i) = state.selected() {
+                    //         i = previous_selectable(&selected_flags, i);
+                    //         state.select(Some(i));
+                    //     }
 
-            // Paragraph widget
-            let paragraph = Paragraph::new(Text::from(text_content.clone()))
-                .block(Block::default().borders(Borders::ALL).title("Chat"))
-                .wrap(Wrap { trim: false })
-                .scroll((scroll_offset, 0));
+                    if let Some(mut i) = state.selected() {
+                        if let Some(user_colour_picked) = user_colour_pick {
+                            Text::from(vec![
+                                Line::from(vec![
+                                    Span::raw("Selecting for user: "),
+                                    Span::styled(format!("{}", user_colour_picked.to_string()), Style::default().fg(user_colour_picked)),
+                                ]),
+                                Line::from(vec![
+                                    Span::raw("Selecting for LLM: "),
+                                    Span::styled(format!("{}", options[i].to_string()), Style::default().fg(options[i])),
+                                ]),
+                                Line::from("Press 'ESC' to return to chat"),
+                            ])
+                        }else{
+                            Text::from(vec![
+                                Line::from(vec![
+                                    Span::raw("Selecting for user: "),
+                                    Span::styled(format!("{}", options[i].to_string()), Style::default().fg(options[i])),
+                                ]),
+                                Line::from("Press 'ESC' to return to chat"),
+                            ])
+                        }
+                        // format!("Selecting:{}\nPress 'ESC' to return to chat",options[i].to_string())
+                        
+                    } else {
+                        //format!("Selecting for you...\nPress 'ESC' to return to chat")
+                        Text::from(vec![
+                            Line::from("Selecting for you..."),
+                            Line::from("Press 'ESC' to return to chat"),
+                        ])
+                    })
+                .block(Block::default().borders(Borders::ALL).title("Help"));
 
-            f.render_widget(paragraph, paragraph_area);
-
-            // Draw scrollbar
-            draw_scrollbar(f, scrollbar_area, scroll_offset, total_lines, paragraph_area.height);
-
-            // Help area
-            let help_text = Paragraph::new("Help: Up/Down = scroll, PageUp/PageDown = scroll faster, q = quit")
-                .block(Block::default().borders(Borders::ALL).title("Help"))
-                .wrap(Wrap { trim: true });
-            f.render_widget(help_text, help_area);
+            f.render_widget(help, display_area);
         })?;
 
-        // Simulate new text every 2 seconds
-        if last_update.elapsed() > Duration::from_secs(2) {
-            text_content.push_str("New message arrived!\n");
-            last_update = Instant::now();
-        }
-
-        // Input handling
-        if event::poll(Duration::from_millis(50))? {
+        // Handle input
+        if event::poll(std::time::Duration::from_millis(100))? {
             if let Event::Key(key) = event::read()? {
                 match key.code {
                     KeyCode::Char('q') => break,
-                    KeyCode::Up => scroll_offset = scroll_offset.saturating_sub(1),
-                    KeyCode::Down => scroll_offset = scroll_offset.saturating_add(1),
-                    KeyCode::PageUp => scroll_offset = scroll_offset.saturating_sub(5),
-                    KeyCode::PageDown => scroll_offset = scroll_offset.saturating_add(5),
+                    KeyCode::Up => {
+                        if let Some(mut i) = state.selected() {
+                            i = previous_selectable(&selected_flags, i);
+                            state.select(Some(i));
+                        }
+                    }
+                    KeyCode::Down => {
+                        if let Some(mut i) = state.selected() {
+                            i = next_selectable(&selected_flags, i);
+                            state.select(Some(i));
+                        }
+                    }
+                    KeyCode::Enter => {
+                        if let Some(i) = state.selected() {
+                            if !selected_flags[i] {
+                                // println!("Selected: {}", options[i]);
+                                selected_flags[i] = true;
+
+                                let count = selected_flags.iter().filter(|&n| *n == true).count();
+                                if count==2{
+                                    break
+                                }else if count==1{
+                                    user_colour_pick=Some(options[i]);
+                                }
+                                // Move to next selectable
+                                let next = next_selectable(&selected_flags, i);
+                                state.select(Some(next));
+                            }
+                        }
+                    }
                     _ => {}
                 }
             }
@@ -104,50 +173,30 @@ fn main() -> Result<(), io::Error> {
     Ok(())
 }
 
-/// Count number of wrapped lines for a given text and width
-fn count_wrapped_lines(text: &str, width: u16) -> u16 {
-    let width = width as usize;
-    let mut lines = 0;
-
-    for raw_line in text.lines() {
-        let mut remaining = raw_line.to_string();
-        while !remaining.is_empty() {
-            let take = std::cmp::min(width, remaining.chars().count());
-            remaining = remaining.chars().skip(take).collect();
-            lines += 1;
+/// Get next selectable index
+fn next_selectable(selected_flags: &Vec<bool>, mut index: usize) -> usize {
+    let len = selected_flags.len();
+    for _ in 0..len {
+        index = (index + 1) % len;
+        if !selected_flags[index] {
+            return index;
         }
     }
-
-    lines
+    index // fallback
 }
 
-/// Draw vertical scrollbar
-fn draw_scrollbar(
-    f: &mut ratatui::Frame,
-    area: Rect,
-    scroll: u16,
-    total_lines: u16,
-    viewport_height: u16,
-) {
-    if total_lines <= viewport_height {
-        return;
-    }
-
-    let scrollbar_height = std::cmp::max(1, viewport_height * viewport_height / total_lines);
-    let max_scroll = total_lines.saturating_sub(viewport_height);
-    let scroll_pos = if max_scroll > 0 {
-        scroll * (viewport_height - scrollbar_height) / max_scroll
-    } else {
-        0
-    };
-
-    for i in 0..scrollbar_height {
-        let y = area.y + scroll_pos + i;
-        if y < area.y + area.height {
-            f.render_widget(
-                Paragraph::new("█").style(Style::default().fg(Color::Gray)),
-                Rect { x: area.x, y, width: 1, height: 1 },
-            );
+/// Get previous selectable index
+fn previous_selectable(selected_flags: &Vec<bool>, mut index: usize) -> usize {
+    let len = selected_flags.len();
+    for _ in 0..len {
+        if index == 0 {
+            index = len - 1;
+        } else {
+            index -= 1;
+        }
+        if !selected_flags[index] {
+            return index;
         }
     }
+    index
 }

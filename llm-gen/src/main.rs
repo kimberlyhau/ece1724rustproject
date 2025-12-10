@@ -24,14 +24,14 @@ use ratatui::{
     style::{Color, Modifier, Style, Stylize},
     text::{Line, Span, Text},
     widgets::{Block, List, ListItem, Borders, Paragraph,Scrollbar, ScrollbarOrientation, ScrollbarState,
-        StatefulWidget,},
+        StatefulWidget, ListState},
 };
 use tokio::sync::mpsc;
 use tokio::time::{sleep, Duration};
 use ratatui::widgets::Wrap;
 
 struct App {
-    visible_text: Vec<String>,
+    llm_messages: Vec<String>,
     input: String,
     /// Position of cursor in the editor area.
     character_index: usize,
@@ -39,12 +39,15 @@ struct App {
     input_mode: InputMode,
     /// History of recorded messages
     messages: Vec<String>,
+    user_colour:Color,
+    llm_colour:Color,
 }
 
 enum InputMode {
     Normal,
     Editing,
     Processing,
+    ColourSelection
 }
 
 
@@ -68,147 +71,256 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut receiving = String::new();
 
     let mut scroll_offset: u16 = 0;
+    let options = vec![
+    Color::Red,
+    Color::Green,
+    Color::Yellow,
+    Color::Blue,
+    Color::Magenta,
+    Color::Cyan,
+    Color::Gray,
+    Color::LightRed,
+    Color::LightGreen,
+    Color::LightYellow,
+    Color::LightBlue,
+    Color::LightMagenta,
+    Color::LightCyan,
+    Color::White,
+    ];
+    //reset when colour picking
+    let mut selected_flags = vec![false; options.len()];
+    let mut state = ListState::default();
+    state.select(Some(0));
+    let mut user_colour_pick:Option<Color> = None;
     loop {
-        terminal.draw(|frame| {
-            let vertical = Layout::vertical([
-                Constraint::Length(1),
-                // Constraint::Min(1),
-                Constraint::Min(1),
-                Constraint::Length(3),
-            ]);
-            let [help_area, response_area, input_area] = vertical.areas(frame.area());
+        match app.input_mode{
+            InputMode::ColourSelection => {
+                
+            terminal.draw(|frame| {
+                let size = frame.size();
+                let vertical = Layout::vertical([
+                    Constraint::Min(1),
+                    Constraint::Length(5),
+                ]).split(size);
 
-            let horizontal = Layout::default()
-                .direction(Direction::Horizontal)
-                .constraints([Constraint::Percentage(95), Constraint::Percentage(5)].as_ref())
-                .split(response_area);
+                let list_area = vertical[0];
+                let display_area = vertical[1];
 
-            let chat_area = horizontal[0];
-            let scrollbar_area = horizontal[1];
+                let items: Vec<ListItem> = options
+                    .iter()
+                    .enumerate()
+                    .map(|(i, &opt)| {
+                        let style = if selected_flags[i] {
+                            Style::default().fg(Color::DarkGray)
+                        } else {
+                            Style::default().fg(opt)
+                        };
+                        ListItem::new(opt.to_string()).style(style)
+                    })
+                    .collect();
 
-            let (msg, style) = match app.input_mode {
-                InputMode::Normal => (
-                    vec![
-                        "Press ".into(),
-                        "q".bold(),
-                        " to exit, ".into(),
-                        "e".bold(),
-                        " to enter a prompt.".bold(),
-                    ],
-                    Style::default().add_modifier(Modifier::RAPID_BLINK),
-                ),
-                InputMode::Editing => (
-                    vec![
-                        "Press ".into(),
-                        "Esc".bold(),
-                        " to stop editing, ".into(),
-                        "Enter".bold(),
-                        " to record the message".into(),
-                    ],
-                    Style::default(),
-                ),
-                InputMode::Processing => (
-                    vec![
-                        "Processing ".into(),
-                    ],
-                    Style::default(),
-                ),
-            };
-            let t = Text::from(Line::from(msg)).patch_style(style);
-            let help_message = Paragraph::new(t);
-            frame.render_widget(help_message, help_area);
+                let list = List::new(items)
+                    .block(Block::default().borders(Borders::ALL).title(
+                        match selected_flags.iter().filter(|&n| *n == true).count(){
+                            0 => "Select a Colour for You",
+                            _ => "Select a Colour for LLM",
+                        }))
+                    .highlight_style(Style::default().bg(Color::Blue).fg(Color::White))
+                    .highlight_symbol(">> ");
 
-            let input =  match app.input_mode {
-                InputMode::Processing => (Paragraph::new("Wait for response...")
-                    .style(Style::default())
-                    .block(Block::bordered().title("Input"))),
-                InputMode::Normal => (Paragraph::new("Enter a prompt!")
-                    .style(Style::default())
-                    .block(Block::bordered().title("Input"))),
-                InputMode::Editing => (
-                    Paragraph::new(app.input.as_str())
-                    .style(Style::default().fg(Color::Yellow))
-                    .block(Block::bordered().title("Input"))),
-            };
-            frame.render_widget(input, input_area);
-            match app.input_mode {
-            // Hide the cursor. `Frame` does this by default, so we don't need to do anything here
-                InputMode::Normal => {}
+                frame.render_stateful_widget(list, list_area, &mut state);
+                let colour_info = Paragraph::new(
+                        if let Some(mut i) = state.selected() {
+                            if let Some(user_colour_picked) = user_colour_pick {
+                                Text::from(vec![
+                                    Line::from(vec![
+                                        Span::raw("Selecting for user: "),
+                                        Span::styled(format!("{}", user_colour_picked.to_string()), Style::default().fg(user_colour_picked)),
+                                    ]),
+                                    Line::from(vec![
+                                        Span::raw("Selecting for LLM: "),
+                                        Span::styled(format!("{}", options[i].to_string()), Style::default().fg(options[i])),
+                                    ]),
+                                    Line::from("Press 'ESC' to return to chat"),
+                                ])
+                            }else{
+                                Text::from(vec![
+                                    Line::from(vec![
+                                        Span::raw("Selecting for user: "),
+                                        Span::styled(format!("{}", options[i].to_string()), Style::default().fg(options[i])),
+                                    ]),
+                                    Line::from("Press 'ESC' to return to chat"),
+                                ])
+                            }
+                        // format!("Selecting:{}\nPress 'ESC' to return to chat",options[i].to_string())
+                        
+                    } else {
+                        //format!("Selecting for you...\nPress 'ESC' to return to chat")
+                        Text::from(vec![
+                            Line::from("Selecting..."),
+                            Line::from("Press 'ESC' to return to chat"),
+                        ])
+                    })
+                    .block(Block::default().borders(Borders::ALL).title("Info"));
 
-                // Make the cursor visible and ask ratatui to put it at the specified coordinates after
-                // rendering
-                #[allow(clippy::cast_possible_truncation)]
-                InputMode::Editing => frame.set_cursor_position(Position::new(
-                    // Draw the cursor at the current position in the input field.
-                    // This position is can be controlled via the left and right arrow key
-                    input_area.x + app.character_index as u16 + 1,
-                    // Move one line down, from the border to the input line
-                    input_area.y + 1,
-                )),
-                InputMode::Processing => {}
+                frame.render_widget(colour_info, display_area);
+            })?;
             }
+            _ => {
+                terminal.draw(|frame| {
+                let vertical = Layout::vertical([
+                    Constraint::Length(1),
+                    // Constraint::Min(1),
+                    Constraint::Min(1),
+                    Constraint::Length(3),
+                ]);
+                let [help_area, response_area, input_area] = vertical.areas(frame.area());
 
-            // let mut messages=Vec::new();
-            // for item in app.messages.iter().zip_longest(app.visible_text.iter()) {
-            //     match item {
-            //         Both(a, b) => {
-            //             messages.push(ListItem::new(user.to_string()+&a));
-            //             messages.push(ListItem::new(llm.to_string()+&b));
-            //         }
-            //         Left(a) => messages.push(ListItem::new(user.to_string()+&a)),
-            //         Right(b) => messages.push(ListItem::new(llm.to_string()+&b)),
-            //     }
-            // }
-            // if !receiving.is_empty(){
-            //     messages.push(ListItem::new(llm.to_string()+&receiving));
-            // }
-            // let message = List::new(messages).block(Block::bordered().title("Messages"));
-            // frame.render_widget(message, response_area);
+                let horizontal = Layout::default()
+                    .direction(Direction::Horizontal)
+                    .constraints([Constraint::Percentage(95), Constraint::Percentage(5)].as_ref())
+                    .split(response_area);
 
-            let mut messages = "".to_string();
-            for item in app.messages.iter().zip_longest(app.visible_text.iter()) {
-                match item {
-                    Both(a, b) => {
-                        // messages.push_str(user.to_string()+&a+"\n".to_string());
-                        // messages.push_str(llm.to_string()+&b+"\n".to_string());
-                        messages+=&format!("{} {}\n",user, a);
-                        messages+=&format!("{} {}\n",llm, b);
-                    }
-                    Left(a) => messages+=&format!("{} {}\n",user, a),//messages.push_str(user.to_string()+&a+"\n".to_string()),
-                    Right(b) => messages+=&format!("{} {}\n",llm, b),//messages.push_str(llm.to_string()+&b+"\n".to_string()),
+                let chat_area = horizontal[0];
+                let scrollbar_area = horizontal[1];
+
+                let (msg, style) = match app.input_mode {
+                    InputMode::Normal => (
+                        vec![
+                            "Press ".into(),
+                            "q".bold(),
+                            " to exit, ".into(),
+                            "e".bold(),
+                            " to enter a prompt.".bold(),
+                        ],
+                        Style::default().add_modifier(Modifier::RAPID_BLINK),
+                    ),
+                    InputMode::Editing => (
+                        vec![
+                            "Press ".into(),
+                            "Esc".bold(),
+                            " to stop editing, ".into(),
+                            "Enter".bold(),
+                            " to record the message".into(),
+                        ],
+                        Style::default(),
+                    ),
+                    InputMode::Processing => (
+                        vec![
+                            "Processing ".into(),
+                        ],
+                        Style::default(),
+                    ),
+                    InputMode::ColourSelection => (
+                        vec![
+                            "Processing colour selection".into(),
+                        ],
+                        Style::default(),
+                    ),
+                };
+                let t = Text::from(Line::from(msg)).patch_style(style);
+                let help_message = Paragraph::new(t);
+                frame.render_widget(help_message, help_area);
+
+                let input =  match app.input_mode {
+                    InputMode::Processing => (Paragraph::new("Wait for response...")
+                        .style(Style::default())
+                        .block(Block::bordered().title("Input"))),
+                    InputMode::Normal => (Paragraph::new("Enter a prompt!")
+                        .style(Style::default())
+                        .block(Block::bordered().title("Input"))),
+                    InputMode::Editing => (
+                        Paragraph::new(app.input.as_str())
+                        .style(Style::default().fg(Color::Yellow))
+                        .block(Block::bordered().title("Input"))),
+                    InputMode::ColourSelection => (
+                        Paragraph::new(app.input.as_str())
+                        .style(Style::default().fg(Color::Yellow))
+                        .block(Block::bordered().title("Colour Input"))),
+                };
+                frame.render_widget(input, input_area);
+                match app.input_mode {
+                // Hide the cursor. `Frame` does this by default, so we don't need to do anything here
+                    InputMode::Normal => {}
+
+                    // Make the cursor visible and ask ratatui to put it at the specified coordinates after
+                    // rendering
+                    #[allow(clippy::cast_possible_truncation)]
+                    InputMode::Editing => frame.set_cursor_position(Position::new(
+                        // Draw the cursor at the current position in the input field.
+                        // This position is can be controlled via the left and right arrow key
+                        input_area.x + app.character_index as u16 + 1,
+                        // Move one line down, from the border to the input line
+                        input_area.y + 1,
+                    )),
+                    InputMode::Processing => {},
+                    InputMode::ColourSelection => {},
                 }
+
+                let mut spans=Vec::new();
+                let mut messages = "".to_string();
+                for item in app.messages.iter().zip_longest(app.llm_messages.iter()) {
+                    match item {
+                        Both(a, b) => {
+                            // messages.push(ListItem::new(user.to_string()+&a));
+                            let user_span = Span::styled(user.to_string()+&a, Style::default().fg(app.user_colour));
+                            spans.push(Line::from(vec![user_span]));
+                            let llm_span = Span::styled(llm.to_string()+&b, Style::default().fg(app.llm_colour));
+                            spans.push(Line::from(vec![llm_span]));
+                            messages+=&format!("{} {}\n",user, a);
+                            messages+=&format!("{} {}\n",llm, b);
+                            // messages.push(ListItem::new(llm.to_string()+&b));
+                        }
+                        Left(a) => {
+                            let user_span = Span::styled(user.to_string()+&a, Style::default().fg(app.user_colour));
+                            spans.push(Line::from(vec![user_span]));
+                            messages+=&format!("{} {}\n",user, a);
+                        }
+                        Right(b) => {
+                            let llm_span = Span::styled(llm.to_string()+&b, Style::default().fg(app.llm_colour));
+                            spans.push(Line::from(vec![llm_span]));
+                            messages+=&format!("{} {}\n",llm, b);
+                        }
+                    }
+                }
+                if !receiving.is_empty(){
+                    let llm_span = Span::styled(llm.to_string()+&receiving, Style::default().fg(app.llm_colour));
+                    spans.push(Line::from(vec![llm_span]));
+                    messages+=&format!("{} {}\n",llm, receiving);
+
+                }
+                // Count total wrapped lines
+                let total_lines = count_wrapped_lines(&messages, chat_area.width)+2;
+
+                // Clamp scroll
+                scroll_offset = scroll_offset.min(total_lines.saturating_sub(chat_area.height));
+
+                let text = Text::from(spans);
+                let paragraph = Paragraph::new(text.clone())
+                    .block(Block::default().borders(Borders::ALL).title("Chat"))
+                    .wrap(Wrap { trim: false })
+                    .scroll((scroll_offset, 0));
+
+                frame.render_widget(paragraph, chat_area);
+                draw_scrollbar(frame, scrollbar_area, scroll_offset, total_lines, chat_area.height);
+
+            })?;
             }
-            if !receiving.is_empty(){
-                messages+=&format!("{} {}",llm, receiving);
-            }
-
-            // Count total wrapped lines
-            let total_lines = count_wrapped_lines(&messages, chat_area.width)+2;
-
-            // Clamp scroll
-            scroll_offset = scroll_offset.min(total_lines.saturating_sub(chat_area.height));
-
-            let text = Text::from(messages);
-            let paragraph = Paragraph::new(text.clone())
-                .block(Block::default().borders(Borders::ALL).title("Chat"))
-                .wrap(Wrap { trim: false })
-                .scroll((scroll_offset, 0));
-
-            frame.render_widget(paragraph, chat_area);
-            draw_scrollbar(frame, scrollbar_area, scroll_offset, total_lines, chat_area.height);
-
-        })?;
-
-
+        }
+        
         if event::poll(Duration::from_millis(1))? {
             if let Event::Key(key) = event::read()? {
-                // if key.code == KeyCode::Char('q') {
-                //     break;
-                // }
                 match app.input_mode {
                     InputMode::Normal => match key.code {
                         KeyCode::Char('e') => {
                             app.input_mode = InputMode::Editing;
+                        }
+                        KeyCode::Char('c') => {
+                            selected_flags = vec![false; options.len()];
+                            state = ListState::default();
+                            state.select(Some(0));
+                            user_colour_pick = None;
+                            app.input_mode = InputMode::ColourSelection;
                         }
                         KeyCode::Up => scroll_offset = scroll_offset.saturating_sub(1),
                         KeyCode::Down => scroll_offset = scroll_offset.saturating_add(1),
@@ -230,7 +342,53 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         _ => {}
                     },
                     InputMode::Editing => {},
-                    InputMode::Processing => {},
+                    InputMode::Processing => match key.code {
+                        KeyCode::Up => scroll_offset = scroll_offset.saturating_sub(1),
+                        KeyCode::Down => scroll_offset = scroll_offset.saturating_add(1),
+                        KeyCode::PageUp => scroll_offset = scroll_offset.saturating_sub(5),
+                        KeyCode::PageDown => scroll_offset = scroll_offset.saturating_add(5),
+                        KeyCode::Char('q') => {
+                            break;
+                        }
+                        _ => {}
+                    },
+                    InputMode::ColourSelection => match key.code {
+                        KeyCode::Char('q') => break,
+                        KeyCode::Up => {
+                            if let Some(mut i) = state.selected() {
+                                i = previous_selectable(&selected_flags, i);
+                                state.select(Some(i));
+                            }
+                        }
+                        KeyCode::Down => {
+                            if let Some(mut i) = state.selected() {
+                                i = next_selectable(&selected_flags, i);
+                                state.select(Some(i));
+                            }
+                        }
+                        KeyCode::Enter => {
+                            if let Some(i) = state.selected() {
+                                if !selected_flags[i] {
+                                    // println!("Selected: {}", options[i]);
+                                    selected_flags[i] = true;
+                                    let count = selected_flags.iter().filter(|&n| *n == true).count();
+                                    if count==2{
+                                        app.llm_colour = options[i];
+                                        if let Some(user_colour_picked) = user_colour_pick {
+                                            app.user_colour=user_colour_picked;
+                                        }
+                                        app.input_mode = InputMode::Normal;
+                                    }else if count==1{
+                                        user_colour_pick=Some(options[i]);
+                                    }
+                                    // Move to next selectable
+                                    let next = next_selectable(&selected_flags, i);
+                                    state.select(Some(next));
+                                }
+                            }
+                        }
+                        _ => {}
+                    }
                 }
             }
         }
@@ -239,7 +397,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         while let Ok(c) = rx.try_recv() {
             if c=="Thread work complete!"{
                 app.input_mode = InputMode::Normal;
-                app.visible_text.push(receiving);
+                app.llm_messages.push(receiving);
                 receiving = "".to_string();
             }
             else {
@@ -260,6 +418,34 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // ratatui::restore();
 
     Ok(())
+}
+
+/// Get next selectable index
+fn next_selectable(selected_flags: &Vec<bool>, mut index: usize) -> usize {
+    let len = selected_flags.len();
+    for _ in 0..len {
+        index = (index + 1) % len;
+        if !selected_flags[index] {
+            return index;
+        }
+    }
+    index // fallback
+}
+
+/// Get previous selectable index
+fn previous_selectable(selected_flags: &Vec<bool>, mut index: usize) -> usize {
+    let len = selected_flags.len();
+    for _ in 0..len {
+        if index == 0 {
+            index = len - 1;
+        } else {
+            index -= 1;
+        }
+        if !selected_flags[index] {
+            return index;
+        }
+    }
+    index
 }
 
 /// Count number of wrapped lines for given text and width
@@ -314,18 +500,22 @@ fn draw_scrollbar(
 
 impl App {
     fn new() -> Self {
-        Self { visible_text: Vec::new(),
-        input: String::new(),
-        input_mode: InputMode::Normal,
-        messages: Vec::new(),
-        character_index: 0, }
+        Self { 
+            llm_messages: Vec::new(),
+            input: String::new(),
+            input_mode: InputMode::Normal,
+            messages: Vec::new(),
+            character_index: 0, 
+            user_colour:  Color::Red,
+            llm_colour:  Color::Green,
+        }
     }
 
     // fn push_char(&mut self, c: char) {
-    //     self.visible_text.push(c);
+    //     self.llm_messages.push(c);
     // }
     // fn push_str(&mut self, c: String) {
-    //     self.visible_text.push_str(&c);
+    //     self.llm_messages.push_str(&c);
     // }
     fn move_cursor_left(&mut self) {
         let cursor_moved_left = self.character_index.saturating_sub(1);
@@ -343,10 +533,6 @@ impl App {
         self.move_cursor_right();
     }
 
-    /// Returns the byte index based on the character position.
-    ///
-    /// Since each character in a string can be contain multiple bytes, it's necessary to calculate
-    /// the byte index based on the index of the character.
     fn byte_index(&self) -> usize {
         self.input
             .char_indices()
@@ -358,9 +544,6 @@ impl App {
     fn delete_char(&mut self) {
         let is_not_cursor_leftmost = self.character_index != 0;
         if is_not_cursor_leftmost {
-            // Method "remove" is not used on the saved text for deleting the selected char.
-            // Reason: Using remove on String works on bytes instead of the chars.
-            // Using remove would require special care because of char boundaries.
 
             let current_index = self.character_index;
             let from_left_to_current_index = current_index - 1;
@@ -390,7 +573,7 @@ impl App {
         let input = self.input.clone();
         self.input.clear();
         self.reset_cursor();
-        // self.visible_text.push_str(&self.input.clone());
+        // self.llm_messages.push_str(&self.input.clone());
         // eprintln!("Debug information: {:?}", input);
         tokio::spawn(async move {
             let _ = run_llm(tx, input).await;
@@ -409,7 +592,7 @@ async fn async_text_stream(tx: mpsc::Sender<String>, input:String) {
 }
 
 async fn run_llm(tx: mpsc::Sender<String>, input:String) -> Result<()>{
-    let text = "Streaming text from async tasks…\nThis is running in the background.";
+    let text = "Streaming text from async tasks…\nThis is running in the background.Streaming text from async tasks…\nThis is running in the background.";
     for c in text.chars() {
         // eprintln!("{c}");
         tx.send(c.to_string()).await.ok();
