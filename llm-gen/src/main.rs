@@ -1,37 +1,43 @@
 
-// use anyhow::{anyhow, Context, Result};
-use anyhow::{ Result};
+use anyhow::{anyhow, Context, Result};
+use candle_core::{DType, Device, Tensor};
+use candle_examples::token_output_stream::TokenOutputStream;
+use candle_nn::VarBuilder;
+use candle_transformers::generation::{LogitsProcessor, Sampling};
+use candle_transformers::models::llama as llama_model;
+use candle_transformers::models::llama::{Llama, LlamaConfig};
+use hf_hub::{api::sync::Api, Repo, RepoType};
+use std::io::{self, Write};
+use tokenizers::Tokenizer;
+use itertools::Itertools;
+use itertools::EitherOrBoth::{Both, Left, Right};
+// use std::error::Error;
+// use std::{io};
 use crossterm::{
     event::{self, Event, KeyCode,KeyEventKind},
     terminal::{enable_raw_mode, disable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
     execute,
 };
-use futures::StreamExt;
 use ratatui::Terminal;
 use ratatui::{
-    layout::{Constraint, Layout, Position,  Rect, Direction},
+    layout::{Constraint, Layout, Position, Margin, Rect, Direction},
     style::{Color, Modifier, Style, Stylize},
     text::{Line, Span, Text},
-    widgets::{Block, List, ListItem, Borders, Paragraph, ListState, Wrap},
+    widgets::{Block, List, ListItem, Borders, Paragraph,Scrollbar, ScrollbarOrientation, ScrollbarState,
+        StatefulWidget, ListState},
 };
-use reqwest::Client;
-use serde::Deserialize;
-use serde_json::json;
-use std::io;
 use tokio::sync::mpsc;
-use tokio::time::{Duration};
-use itertools::Itertools;
-use itertools::EitherOrBoth::{Both, Left, Right};
+use tokio::time::{sleep, Duration};
+use ratatui::widgets::Wrap;
 
 struct App {
-    // History of responses from llm
     llm_messages: Vec<String>,
     input: String,
-    // Position of cursor in the editor area.
+    /// Position of cursor in the editor area.
     character_index: usize,
-    // Current input mode
+    /// Current input mode
     input_mode: InputMode,
-    // History of prompts
+    /// History of recorded messages
     messages: Vec<String>,
     user_colour:Color,
     llm_colour:Color,
@@ -40,10 +46,11 @@ struct App {
 enum InputMode {
     Normal,
     Editing,
-    Fetching,
     Processing,
     ColourSelection
 }
+
+
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -65,36 +72,36 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let mut scroll_offset: u16 = 0;
     let options = vec![
-        Color::Red,
-        Color::Green,
-        Color::Yellow,
-        Color::Blue,
-        Color::Magenta,
-        Color::Cyan,
-        Color::Gray,
-        Color::LightRed,
-        Color::LightGreen,
-        Color::LightYellow,
-        Color::LightBlue,
-        Color::LightMagenta,
-        Color::LightCyan,
-        Color::White,
+    Color::Red,
+    Color::Green,
+    Color::Yellow,
+    Color::Blue,
+    Color::Magenta,
+    Color::Cyan,
+    Color::Gray,
+    Color::LightRed,
+    Color::LightGreen,
+    Color::LightYellow,
+    Color::LightBlue,
+    Color::LightMagenta,
+    Color::LightCyan,
+    Color::White,
     ];
     //reset when colour picking
     let mut selected_flags = vec![false; options.len()];
     let mut state = ListState::default();
     state.select(Some(0));
     let mut user_colour_pick:Option<Color> = None;
-
-loop {
+    loop {
         match app.input_mode{
             InputMode::ColourSelection => {
                 
             terminal.draw(|frame| {
+                let size = frame.size();
                 let vertical = Layout::vertical([
                     Constraint::Min(1),
                     Constraint::Length(5),
-                ]).split(frame.area());
+                ]).split(size);
 
                 let list_area = vertical[0];
                 let display_area = vertical[1];
@@ -123,7 +130,7 @@ loop {
 
                 frame.render_stateful_widget(list, list_area, &mut state);
                 let colour_info = Paragraph::new(
-                        if let Some(i) = state.selected() {
+                        if let Some(mut i) = state.selected() {
                             if let Some(user_colour_picked) = user_colour_pick {
                                 Text::from(vec![
                                     Line::from(vec![
@@ -184,9 +191,7 @@ loop {
                             "q".bold(),
                             " to exit, ".into(),
                             "e".bold(),
-                            " to enter a prompt, ".into(),
-                            "r".bold(),
-                            " to resume a saved chat, ".into(),
+                            " to enter a prompt, ".bold(),
                             "c".bold(),
                             " to change chat colours.".into(),
                         ],
@@ -198,19 +203,13 @@ loop {
                             "Esc".bold(),
                             " to stop editing, ".into(),
                             "Enter".bold(),
-                            " to record the message, ".into(),
+                            " to record the message.".into(),
                         ],
                         Style::default(),
                     ),
                     InputMode::Processing => (
                         vec![
                             "Processing ".into(),
-                        ],
-                        Style::default(),
-                    ),
-                    InputMode::Fetching => (
-                        vec![
-                            "Enter chat ID to resume ".into(),
                         ],
                         Style::default(),
                     ),
@@ -226,24 +225,20 @@ loop {
                 frame.render_widget(help_message, help_area);
 
                 let input =  match app.input_mode {
-                    InputMode::Processing => Paragraph::new("Wait for response...")
+                    InputMode::Processing => (Paragraph::new("Wait for response...")
                         .style(Style::default())
-                        .block(Block::bordered().title("Input")),
-                    InputMode::Normal => Paragraph::new("Enter a prompt!")
+                        .block(Block::bordered().title("Input"))),
+                    InputMode::Normal => (Paragraph::new("Enter a prompt!")
                         .style(Style::default())
-                        .block(Block::bordered().title("Input")),
-                    InputMode::Editing => 
+                        .block(Block::bordered().title("Input"))),
+                    InputMode::Editing => (
                         Paragraph::new(app.input.as_str())
                         .style(Style::default().fg(Color::Yellow))
-                        .block(Block::bordered().title("Input")),
-                    InputMode::Fetching => 
-                        Paragraph::new(app.input.as_str())
-                        .style(Style::default().fg(Color::Cyan))
-                        .block(Block::bordered().title("Chat ID Input")),
-                    InputMode::ColourSelection => 
+                        .block(Block::bordered().title("Input"))),
+                    InputMode::ColourSelection => (
                         Paragraph::new(app.input.as_str())
                         .style(Style::default().fg(Color::Yellow))
-                        .block(Block::bordered().title("Colour Input")),
+                        .block(Block::bordered().title("Colour Input"))),
                 };
                 frame.render_widget(input, input_area);
                 match app.input_mode {
@@ -261,10 +256,6 @@ loop {
                         input_area.y + 1,
                     )),
                     InputMode::Processing => {},
-                    InputMode::Fetching => frame.set_cursor_position(Position::new(
-                        input_area.x + app.character_index as u16 + 1,
-                        input_area.y + 1,
-                    )),
                     InputMode::ColourSelection => {},
                 }
 
@@ -326,9 +317,6 @@ loop {
                         KeyCode::Char('e') => {
                             app.input_mode = InputMode::Editing;
                         }
-                        KeyCode::Char('r') => {
-                            app.input_mode = InputMode::Fetching;
-                        }
                         KeyCode::Char('c') => {
                             selected_flags = vec![false; options.len()];
                             state = ListState::default();
@@ -366,16 +354,6 @@ loop {
                         }
                         _ => {}
                     },
-                    InputMode::Fetching if key.kind == KeyEventKind::Press => match key.code {
-                        KeyCode:: Enter => {app.fetch_chat(tx.clone())},
-                        KeyCode:: Char(to_insert) => app.enter_char(to_insert),
-                        KeyCode:: Backspace => app.delete_char(),
-                        KeyCode:: Left => app.move_cursor_left(),
-                        KeyCode:: Right => app.move_cursor_right(),
-                        KeyCode:: Esc => app.input_mode = InputMode::Normal,
-                        _ => {}
-                    },
-                    InputMode::Fetching => {},
                     InputMode::ColourSelection => match key.code {
                         KeyCode::Char('q') => break,
                         KeyCode::Up => {
@@ -444,7 +422,7 @@ loop {
     Ok(())
 }
 
-// Get next selectable index
+/// Get next selectable index
 fn next_selectable(selected_flags: &Vec<bool>, mut index: usize) -> usize {
     let len = selected_flags.len();
     for _ in 0..len {
@@ -456,7 +434,7 @@ fn next_selectable(selected_flags: &Vec<bool>, mut index: usize) -> usize {
     index // fallback
 }
 
-// Get previous selectable index
+/// Get previous selectable index
 fn previous_selectable(selected_flags: &Vec<bool>, mut index: usize) -> usize {
     let len = selected_flags.len();
     for _ in 0..len {
@@ -472,7 +450,7 @@ fn previous_selectable(selected_flags: &Vec<bool>, mut index: usize) -> usize {
     index
 }
 
-// Count number of wrapped lines for given text and width
+/// Count number of wrapped lines for given text and width
 fn count_wrapped_lines(text: &str, width: u16) -> u16 {
     let width = width as usize;
     let mut lines = 0;
@@ -489,7 +467,7 @@ fn count_wrapped_lines(text: &str, width: u16) -> u16 {
     lines
 }
 
-// Draw vertical scrollbar
+/// Draw vertical scrollbar
 fn draw_scrollbar(
     f: &mut ratatui::Frame,
     area: Rect,
@@ -519,6 +497,7 @@ fn draw_scrollbar(
         }
     }
 }
+
 
 
 impl App {
@@ -556,10 +535,6 @@ impl App {
         self.move_cursor_right();
     }
 
-    // Returns the byte index based on the character position.
-    //
-    // Since each character in a string can be contain multiple bytes, it's necessary to calculate
-    // the byte index based on the index of the character.
     fn byte_index(&self) -> usize {
         self.input
             .char_indices()
@@ -571,9 +546,6 @@ impl App {
     fn delete_char(&mut self) {
         let is_not_cursor_leftmost = self.character_index != 0;
         if is_not_cursor_leftmost {
-            // Method "remove" is not used on the saved text for deleting the selected char.
-            // Reason: Using remove on String works on bytes instead of the chars.
-            // Using remove would require special care because of char boundaries.
 
             let current_index = self.character_index;
             let from_left_to_current_index = current_index - 1;
@@ -603,111 +575,135 @@ impl App {
         let input = self.input.clone();
         self.input.clear();
         self.reset_cursor();
+        // self.llm_messages.push_str(&self.input.clone());
         // eprintln!("Debug information: {:?}", input);
         tokio::spawn(async move {
             let _ = run_llm(tx, input).await;
             // async_text_stream(tx, input);
         });
     }
-
-    fn fetch_chat(&mut self, tx: mpsc::Sender<String>) {
-        self.input_mode = InputMode::Processing;
-        self.messages.push("Fetching chat history for chat ID: ".to_string()+&self.input);
-        let input = self.input.clone();
-        self.input.clear();
-        self.reset_cursor();
-        tokio::spawn(async move {
-            let _ = run_database(tx, input).await;
-        });
-    }
 }
 
-// Struct for deserializing server responses
-#[derive(Debug, Deserialize)]
-struct ServerResponses {
-    #[serde(default)]
-    token: Option<String>,
-    #[serde(default)]
-    done: Option<bool>,
+/// async producer: simulates streaming text over time
+async fn async_text_stream(tx: mpsc::Sender<String>, input:String) {
+    let text = "Streaming text from async tasks…\nThis is running in the background.";
+    for c in text.chars() {
+        tx.send(c.to_string()).await.ok();
+        sleep(Duration::from_millis(40)).await;
+    }
 }
 
 async fn run_llm(tx: mpsc::Sender<String>, input:String) -> Result<()>{
-    let prompt = "<s>[INST] <<SYS>>You are a helpful assistant.<</SYS>> ".to_owned()+&input+"[/INST]";
-    tx.send(prompt.to_string()).await.ok();
-
-    // send HTTP POST request with prompt to llm-server
-    let addr = "127.0.0.1:4000";
-    let prompt_post_url = format!("http://{addr}/generate");
-    let client = Client::new();
-    let response = client
-        .post(&prompt_post_url)
-        .json(&json!({ "prompt": prompt , "username": "Tester", "chat_id": 3}))
-        .send()
-        .await?;
-
-    // read server response stream
-    let mut stream = response.bytes_stream();
-    while let Some(chunk) = stream.next().await {
-        let chunk = chunk?;
-        let line = std::str::from_utf8(&chunk).unwrap_or("").trim();
-        
-        // process only responses that start with data and have content
-        if line.is_empty() || !line.starts_with("data:") {
-            continue;
-        }
-        let payload = line.trim_start_matches("data:").trim();
-        if payload.is_empty() {
-            continue;
-        }
-
-        // deserialize server response and send token to UI
-        if let Ok(message) = serde_json::from_str::<ServerResponses>(payload) {
-            if let Some(token) = message.token {
-                tx.send(token).await.ok();
-            }
-            // response finished when done token received
-            if message.done.unwrap_or(false) {
-                tx.send("Thread work complete!".to_string()).await.ok();
-                return Ok(());
-            }
-        }
+    let text = "Streaming text from async tasks…\nThis is running in the background.Streaming text from async tasks…\nThis is running in the background.";
+    for c in text.chars() {
+        // eprintln!("{c}");
+        tx.send(c.to_string()).await.ok();
+        sleep(Duration::from_millis(40)).await;
     }
     tx.send("Thread work complete!".to_string()).await.ok();
     Ok(())
-}
+// let prompt = "what is an llm?";
+    // let model_id = "HuggingFaceTB/SmolLM2-135M";
+    // let max_new_tokens = 16usize;
+    // eprintln!("Debug information: {:?}", input);
+    // let prompt = "<s>[INST] <<SYS>>You are a helpful assistant.<</SYS>> ".to_owned()+&input+"[/INST]";
+    // // let prompt = format!("{} {} {}", "<s>[INST] <<SYS>>You are a helpful assistant.<</SYS>>", input, "[/INST]");
 
+    // let model_id = "TinyLlama/TinyLlama-1.1B-Chat-v1.0";
+    // let max_new_tokens = 256;
 
-#[derive(Debug, Deserialize)]
-enum FetchResponses {
-    Success {messages: Vec<(i32, String, String)>},
-    Error {message: String},
-}
+    // let api = Api::new()?;
+    // let repo = api.repo(Repo::with_revision(
+    //     model_id.to_string(),
+    //     RepoType::Model,
+    //     "main".to_string(),
+    // ));
 
-async fn run_database(tx: mpsc::Sender<String>, input:String) -> Result<()> {
-    let chat_id: i32 = input.trim().parse().unwrap_or(0);
+    // let tokenizer_path = repo
+    //     .get("tokenizer.json")
+    //     .context("download tokenizer.json")?;
+    // let config_path = repo.get("config.json").context("download config.json")?;
+    // let weight_paths = candle_examples::hub_load_safetensors(&repo, "model.safetensors.index.json")
+    //     .or_else(|_| repo.get("model.safetensors").map(|path| vec![path]))
+    //     .context("download model weights")?;
 
-    let addr = "127.0.0.1:4000";
-    let prompt_post_url = format!("http://{addr}/fetch");
-    let client = Client::new();
-    let response = client
-        .post(&prompt_post_url)
-        .json(&json!({ "username": "Tester", "chat_id": chat_id}))
-        .send()
-        .await?;
-    let messages = response.json::<FetchResponses>().await?;
+    // let tokenizer =
+    //     Tokenizer::from_file(&tokenizer_path).map_err(|err| anyhow!("load tokenizer: {err}"))?;
+    // let mut tokens = tokenizer
+    //     .encode(prompt.clone(), true)
+    //     .map_err(anyhow::Error::msg)?
+    //     .get_ids()
+    //     .to_vec();
+    // let mut stream = TokenOutputStream::new(tokenizer);
 
-    match messages {
-        FetchResponses::Success {messages} => {
-            for (msg_id, msg, timestamp) in messages {
-                let formatted_message = format!("[{}] {}: {}\n", msg_id, timestamp, msg);
-                tx.send(formatted_message).await.ok();
-            }
-        },
-        FetchResponses::Error {message} => {
-            tx.send(format!("Error fetching chat history: {}", message)).await.ok();
-        }
-    }
-    
-    tx.send("Thread work complete!".to_string()).await.ok();
-    Ok(())
+    // #[cfg(feature = "metal")]
+    // let device = match Device::new_metal(0) {
+    //     Ok(device) => device,
+    //     Err(err) => {
+    //         eprintln!("Metal unavailable ({err}), falling back to CPU.");
+    //         Device::Cpu
+    //     }
+    // };
+    // #[cfg(not(feature = "metal"))]
+    // let device = Device::Cpu;
+    // let dtype = DType::F32;
+
+    // let config: LlamaConfig =
+    //     serde_json::from_slice(&std::fs::read(config_path)?).context("parse config.json")?;
+    // let config = config.into_config(false);
+    // let mut cache = llama_model::Cache::new(true, dtype, &config, &device)?;
+
+    // let vb = unsafe { VarBuilder::from_mmaped_safetensors(&weight_paths, dtype, &device)? };
+    // let llama = Llama::load(vb, &config)?;
+
+    // tx.send(prompt.to_string()).await.ok();
+
+    // let mut sampler = LogitsProcessor::from_sampling(
+    //     42,
+    //     Sampling::TopP {
+    //         p: 0.9,
+    //         temperature: 0.7,
+    //     },
+    // );
+    // let eos_token = stream.get_token("</s>");
+    // let mut ctx_index = 0usize;
+
+    // for step in 0..max_new_tokens {
+    //     let (context_size, offset) = if cache.use_kv_cache && step > 0 {
+    //         (1, ctx_index)
+    //     } else {
+    //         (tokens.len(), 0)
+    //     };
+    //     let ctx = &tokens[tokens.len().saturating_sub(context_size)..];
+    //     let input = Tensor::new(ctx, &device)?.unsqueeze(0)?;
+    //     let logits = llama.forward(&input, offset, &mut cache)?;
+    //     let mut logits = logits.squeeze(0)?;
+
+    //     if !tokens.is_empty() {
+    //         let start = tokens.len().saturating_sub(64);
+    //         logits =
+    //             candle_transformers::utils::apply_repeat_penalty(&logits, 1.1, &tokens[start..])?;
+    //     }
+
+    //     ctx_index += ctx.len();
+    //     let next = sampler.sample(&logits)?;
+    //     tokens.push(next);
+
+    //     if let Some(eos) = eos_token {
+    //         if next == eos {
+    //             break;
+    //         }
+    //     }
+
+    //     if let Some(piece) = stream.next_token(next)? {
+    //          tx.send(piece).await.ok();
+    //         // stdout.flush()?;
+    //     }
+    // }
+
+    // if let Some(rest) = stream.decode_rest()? {
+    //     tx.send(rest).await.ok();
+    // }
+    // tx.send("Thread work complete!".to_string()).await.ok();
+    // Ok(())
 }
