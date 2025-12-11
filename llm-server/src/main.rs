@@ -10,7 +10,7 @@ use axum::{routing::get, routing::post, Router};
 use routes::generate::generate;
 use state::AppState;
 use tokio::net::TcpListener;
-use chat_history::{add_model, delete_user, fetch_chat_history};
+use chat_history::{add_model, fetch_chat, fetch_history};
 
 
 async fn test() -> &'static str {
@@ -26,8 +26,6 @@ async fn main() {
     let conn = chat_history::initialize_database().expect("failed to initialize sqlite database");
     // test example model
     add_model(&conn, "TinyLlama-1.1B-Chat-v1.0").unwrap();
-    // deleting test user (and chats) just for testing to not clog up database
-    //delete_user(&conn, 1).unwrap();
     
     let state = Arc::new(AppState::new(engine, conn));
 
@@ -35,7 +33,8 @@ async fn main() {
     let router = Router::new()
         .route("/", get(test))
         .route("/generate", post(generate))
-        .route("/fetch", post(fetch_chat_history))
+        .route("/fetch", post(fetch_chat))
+        .route("/history", post(fetch_history))
         .with_state(Arc::clone(&state));
 
     let addr = "127.0.0.1:4000";
