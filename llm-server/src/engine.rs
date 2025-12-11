@@ -16,7 +16,8 @@ pub const EXAMPLE_MODEL: &str = "TinyLlama/TinyLlama-1.1B-Chat-v1.0";
 // in-memory Candle model plus tokenizer so we can reuse one instance for different prompts
 pub struct InferenceEngine {
     tokenizer: Tokenizer,
-    llama: Llama,
+    prefill_llama: Llama,
+    decode_llama: Llama,
     device: Device,
     dtype: DType,
     config: llama_model::Config,
@@ -71,11 +72,13 @@ impl InferenceEngine {
             serde_json::from_slice(&std::fs::read(config_path)?).context("parse config.json")?;
         let config = llama_config.into_config(false);
         let vb = unsafe { VarBuilder::from_mmaped_safetensors(&weight_paths, dtype, &device)? };
-        let llama = Llama::load(vb, &config)?;
+        let prefill_llama = Llama::load(vb.clone(), &config)?;
+        let decode_llama = Llama::load(vb, &config)?;
 
         Ok(Self {
             tokenizer,
-            llama,
+            prefill_llama,
+            decode_llama,
             device,
             dtype,
             config,
@@ -109,7 +112,8 @@ impl InferenceEngine {
         let mut generated = 0usize;
 
         for step in 0..params.max_tokens {
-            let (context_size, offset) = if !(cache.use_kv_cache && step > 0) {
+            let use_prefill = !(cache.use_kv_cache && step > 0);
+            let (context_size, offset) = if use_prefill {
                 // use full prompt on first pass to build KV cache
                 (tokens.len(), 0)
             } else {
@@ -121,7 +125,12 @@ impl InferenceEngine {
             // for cached decoding the model only needs the new token so it can look up past state from the KV cache
             let ctx = &tokens[tokens.len().saturating_sub(context_size)..];
             let input = Tensor::new(ctx, &self.device)?.unsqueeze(0)?;
-            let logits = self.llama.forward(&input, offset, &mut cache)?;
+            let llama = if use_prefill {
+                &mut self.prefill_llama
+            } else {
+                &mut self.decode_llama
+            };
+            let logits = llama.forward(&input, offset, &mut cache)?;
             let mut logits = logits.squeeze(0)?;
 
             // penalize tokens we just emitted so sampling avoids getting stuck in repeats (e.g. "hello hello hello")
