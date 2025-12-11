@@ -14,6 +14,7 @@ use ratatui::{
     text::{Line, Span, Text},
     widgets::{Block, List, ListItem, Borders, Paragraph, ListState, Wrap},
 };
+use tui_big_text::{BigText, PixelSize};
 use reqwest::Client;
 use serde::Deserialize;
 use serde_json::json;
@@ -89,7 +90,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 loop {
         match app.input_mode{
             InputMode::ColourSelection => {
-                
             terminal.draw(|frame| {
                 let vertical = Layout::vertical([
                     Constraint::Min(1),
@@ -162,12 +162,13 @@ loop {
             _ => {
                 terminal.draw(|frame| {
                 let vertical = Layout::vertical([
+                    Constraint::Min(1),
                     Constraint::Length(1),
                     // Constraint::Min(1),
                     Constraint::Min(1),
                     Constraint::Length(3),
                 ]);
-                let [help_area, response_area, input_area] = vertical.areas(frame.area());
+                let [title_banner,help_area, response_area, input_area] = vertical.areas(frame.area());
 
                 let horizontal = Layout::default()
                     .direction(Direction::Horizontal)
@@ -176,6 +177,16 @@ loop {
 
                 let chat_area = horizontal[0];
                 let scrollbar_area = horizontal[1];
+
+                let title = BigText::builder().centered()
+                        .pixel_size(PixelSize::Quadrant)
+                        .style(Style::new().light_blue())
+                        .lines(vec![
+                            "LLM Chat Interface".into(),
+                            "~~~~~".white().into(),
+                        ])
+                        .build();
+                frame.render_widget(title, title_banner);
 
                 let (msg, style) = match app.input_mode {
                     InputMode::Normal => (
@@ -556,10 +567,6 @@ impl App {
         self.move_cursor_right();
     }
 
-    // Returns the byte index based on the character position.
-    //
-    // Since each character in a string can be contain multiple bytes, it's necessary to calculate
-    // the byte index based on the index of the character.
     fn byte_index(&self) -> usize {
         self.input
             .char_indices()
@@ -571,10 +578,6 @@ impl App {
     fn delete_char(&mut self) {
         let is_not_cursor_leftmost = self.character_index != 0;
         if is_not_cursor_leftmost {
-            // Method "remove" is not used on the saved text for deleting the selected char.
-            // Reason: Using remove on String works on bytes instead of the chars.
-            // Using remove would require special care because of char boundaries.
-
             let current_index = self.character_index;
             let from_left_to_current_index = current_index - 1;
 
@@ -606,7 +609,6 @@ impl App {
         // eprintln!("Debug information: {:?}", input);
         tokio::spawn(async move {
             let _ = run_llm(tx, input).await;
-            // async_text_stream(tx, input);
         });
     }
 

@@ -37,3 +37,4 @@ futures = "0.3"
 reqwest = { version = "0.11", features = ["json", "stream"] }
 serde = { version = "1.0", features = ["derive"] }
 itertools = "0.14.0"
+tui-big-text = "0.7.3"
