@@ -112,15 +112,8 @@ fn start_generation(
 ) {
     // each thread increments ARC to access the shared engine
     let engine = Arc::clone(&state.engine);
-    // lock engine for single prompt generation
-    let Ok(mut engine_lock) = engine.lock() else {
-        let _ = sender.send(EventToServer::Error {
-            message: "failed to get inference engine".to_string(),
-        });
-        return;
-    };
-    // start gen
-    if let Err(err) = engine_lock.generate(&request.prompt, &request.params, &sender) {
+    // start gen using round robin decode engine
+    if let Err(err) = engine.generate(&request.prompt, &request.params, &sender) {
         let _ = sender.send(EventToServer::Error {
             message: err.to_string(),
         });
