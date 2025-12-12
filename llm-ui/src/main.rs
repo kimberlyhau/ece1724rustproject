@@ -424,9 +424,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         KeyCode::Char('e') => {
                             app.input_mode = InputMode::Editing;
                         }
-                        KeyCode::Char('r') => {
-                            app.input_mode = InputMode::Fetching;
-                        }
+                        // KeyCode::Char('r') => {
+                        //     app.input_mode = InputMode::Fetching;
+                        // }
                         KeyCode::Esc => {
                             app.selected_button=0;
                             app.input_mode = InputMode::MainMenu;
@@ -571,7 +571,7 @@ fn next_selectable(selected_flags: &Vec<bool>, mut index: usize) -> usize {
             return index;
         }
     }
-    index // fallback
+    index 
 }
 
 // Get previous selectable index
@@ -711,13 +711,9 @@ impl App {
             let current_index = self.character_index;
             let from_left_to_current_index = current_index - 1;
 
-            // Getting all characters before the selected character.
             let before_char_to_delete = self.input.chars().take(from_left_to_current_index);
-            // Getting all characters after selected character.
             let after_char_to_delete = self.input.chars().skip(current_index);
 
-            // Put all characters together except the selected one.
-            // By leaving the selected one out, it is forgotten and therefore deleted.
             self.input = before_char_to_delete.chain(after_char_to_delete).collect();
             self.move_cursor_left();
         }
