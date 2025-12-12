@@ -1,227 +1,182 @@
-//! # [Ratatui] Tabs example
-//!
-//! The latest version of this example is available in the [examples] folder in the repository.
-//!
-//! Please note that the examples are designed to be run against the `main` branch of the Github
-//! repository. This means that you may not be able to compile with the latest release version on
-//! crates.io, or the one that you have installed locally.
-//!
-//! See the [examples readme] for more information on finding examples that match the version of the
-//! library you are using.
-//!
-//! [Ratatui]: https://github.com/ratatui/ratatui
-//! [examples]: https://github.com/ratatui/ratatui/blob/main/examples
-//! [examples readme]: https://github.com/ratatui/ratatui/blob/main/examples/README.md
-
-use color_eyre::Result;
+use crossterm::event::{self, Event, KeyCode};
 use ratatui::{
-    buffer::Buffer,
-    crossterm::event::{self, Event, KeyCode, KeyEventKind},
-    layout::{Constraint, Layout, Rect},
-    style::{palette::tailwind, Color, Stylize},
-    symbols,
-    text::Line,
-    widgets::{Block, Padding, Paragraph, Tabs, Widget},
-    DefaultTerminal,
+    backend::CrosstermBackend,
+    layout::{Constraint, Direction, Layout},
+    style::{Color, Modifier, Style},
+    widgets::{Block, Borders, Paragraph},
+    Terminal,
+    prelude::{Alignment, Stylize},
 };
-use ratatui::style::Style;
+use std::io;
 use tui_big_text::PixelSize;
 use tui_big_text::BigText;
-use strum::{Display, EnumIter, FromRepr, IntoEnumIterator};
+#[derive(Clone, Copy, PartialEq)]
 
-fn main() -> Result<()> {
-    color_eyre::install()?;
-    let terminal = ratatui::init();
-    let app_result = App::default().run(terminal);
-    ratatui::restore();
-    app_result
+enum ButtonState {
+    Normal,
+    Focused,
 }
 
-#[derive(Default)]
-struct App {
-    state: AppState,
-    selected_tab: SelectedTab,
+struct Button {
+    label: &'static str,
+    state: ButtonState,
 }
 
-#[derive(Default, Clone, Copy, PartialEq, Eq)]
-enum AppState {
-    #[default]
-    Running,
-    Quitting,
-}
-
-#[derive(Default, Clone, Copy, Display, FromRepr, EnumIter)]
-enum SelectedTab {
-    #[default]
-    #[strum(to_string = "Tab 1")]
-    Tab1,
-    #[strum(to_string = "Tab 2")]
-    Tab2,
-    #[strum(to_string = "Tab 3")]
-    Tab3,
-    #[strum(to_string = "Tab 4")]
-    Tab4,
-}
-
-impl App {
-    fn run(mut self, mut terminal: DefaultTerminal) -> Result<()> {
-        while self.state == AppState::Running {
-            terminal.draw(|frame| frame.render_widget(&self, frame.area()))?;
-            self.handle_events()?;
+impl Button {
+    fn new(label: &'static str) -> Self {
+        Button {
+            label,
+            state: ButtonState::Normal,
         }
-        Ok(())
     }
 
-    fn handle_events(&mut self) -> std::io::Result<()> {
-        if let Event::Key(key) = event::read()? {
-            if key.kind == KeyEventKind::Press {
-                match key.code {
-                    KeyCode::Char('l') | KeyCode::Right => self.next_tab(),
-                    KeyCode::Char('h') | KeyCode::Left => self.previous_tab(),
-                    KeyCode::Char('q') | KeyCode::Esc => self.quit(),
-                    _ => {}
-                }
+    fn style(&self) -> Style {
+        match self.state {
+            ButtonState::Normal => Style::default().fg(Color::White),
+            ButtonState::Focused => Style::default()
+                .fg(Color::Black)
+                .bg(Color::Yellow)
+                .add_modifier(Modifier::BOLD),
+        }
+    }
+}
+
+struct App<'a> {
+    buttons: Vec<Button>,
+    selected: usize,
+    text:&'a str,
+}
+
+impl App<'_> {
+    fn new() -> Self {
+        Self {
+            buttons: vec![
+                Button::new("Chat Screen"),
+                Button::new("Chat History"),
+                Button::new("Text Colour Selection"),
+                Button::new("Quit"),
+            ],
+            selected: 0,
+            text:"hi",
+        }
+    }
+
+    fn update_button_states(&mut self) {
+        for (i, btn) in self.buttons.iter_mut().enumerate() {
+            if i == self.selected {
+                btn.state = ButtonState::Focused;
+            } else {
+                btn.state = ButtonState::Normal;
             }
         }
-        Ok(())
     }
 
-    pub fn next_tab(&mut self) {
-        self.selected_tab = self.selected_tab.next();
+    fn next_button(&mut self) {
+        self.selected = (self.selected + 1).min(self.buttons.len() - 1);
+        self.update_button_states();
     }
 
-    pub fn previous_tab(&mut self) {
-        self.selected_tab = self.selected_tab.previous();
-    }
-
-    pub fn quit(&mut self) {
-        self.state = AppState::Quitting;
-    }
-}
-
-impl SelectedTab {
-    /// Get the previous tab, if there is no previous tab return the current tab.
-    fn previous(self) -> Self {
-        let current_index: usize = self as usize;
-        let previous_index = current_index.saturating_sub(1);
-        Self::from_repr(previous_index).unwrap_or(self)
-    }
-
-    /// Get the next tab, if there is no next tab return the current tab.
-    fn next(self) -> Self {
-        let current_index = self as usize;
-        let next_index = current_index.saturating_add(1);
-        Self::from_repr(next_index).unwrap_or(self)
+    fn previous_button(&mut self) {
+        if self.selected > 0 {
+            self.selected -= 1;
+        }
+        self.update_button_states();
     }
 }
 
-impl Widget for &App {
-    fn render(self, area: Rect, buf: &mut Buffer) {
-        use Constraint::{Length, Min};
-        let vertical = Layout::vertical([Length(1), Min(0), Length(1)]);
-        let [header_area, inner_area, footer_area] = vertical.areas(area);
+fn main() -> Result<(), io::Error> {
+    // Terminal init
+    crossterm::terminal::enable_raw_mode()?;
+    let mut stdout = io::stdout();
+    crossterm::execute!(stdout, crossterm::terminal::EnterAlternateScreen)?;
+    let backend = CrosstermBackend::new(stdout);
+    let mut terminal = Terminal::new(backend)?;
 
-        let horizontal = Layout::horizontal([Min(0), Length(20)]);
-        let [tabs_area, title_area] = horizontal.areas(header_area);
+    let mut app = App::new();
+    app.update_button_states();
 
-        render_title(title_area, buf);
-        self.render_tabs(tabs_area, buf);
-        self.selected_tab.render(inner_area, buf);
-        render_footer(footer_area, buf);
-    }
-}
+    loop {
+        terminal.draw(|f| {
+            let size = f.size();
+            let vertical = Layout::vertical([
+                    Constraint::Min(1),
+                    Constraint::Min(12),
+                ]);
+            let [title_banner,buttons] = vertical.areas(f.area());
+            // Horizontal layout: LEFT SPACE | BUTTON COLUMN | RIGHT SPACE
+            let cols = Layout::default()
+                .direction(Direction::Horizontal)
+                .constraints([
+                    Constraint::Percentage(35),
+                    Constraint::Percentage(30), // center column
+                    Constraint::Percentage(35),
+                ])
+                .split(buttons);
 
-impl App {
-    fn render_tabs(&self, area: Rect, buf: &mut Buffer) {
-        let titles = SelectedTab::iter().map(SelectedTab::title);
-        let highlight_style = (Color::default(), self.selected_tab.palette().c700);
-        let selected_tab_index = self.selected_tab as usize;
-        Tabs::new(titles)
-            .highlight_style(highlight_style)
-            .select(selected_tab_index)
-            .padding("", "")
-            .divider(" ")
-            .render(area, buf);
-    }
-}
-
-fn render_title(area: Rect, buf: &mut Buffer) {
-    let title = BigText::builder().centered()
+            // Vertical stack of buttons inside center column
+            let button_chunks = Layout::default()
+                .direction(Direction::Vertical)
+                .constraints([
+                    Constraint::Percentage(25),
+                    Constraint::Percentage(25),
+                    Constraint::Percentage(25),
+                    Constraint::Percentage(25),
+                ])
+                // .vertical_margin((size.height.saturating_sub(12)) / 2) // center vertically
+                .split(cols[1]);
+            // let title = Paragraph::new("LLM Chat Interface").alignment(Alignment::Center);
+            let title = BigText::builder().centered()
                         .pixel_size(PixelSize::Quadrant)
                         .style(Style::new().light_blue())
                         .lines(vec![
                             "LLM Chat Interface".into(),
-                            "~~~~~".white().into(),
+                            "~~~~~~~".white().into(),
                         ])
-                        .build().render(area, buf);
-    // "Ratatui Tabs Example".bold().render(area, buf);
-}
+                        .build();
+            f.render_widget(title, title_banner);
 
-fn render_footer(area: Rect, buf: &mut Buffer) {
-    Line::raw("◄ ► to change tab | Press q to quit")
-        .centered()
-        .render(area, buf);
-}
+            for (i, btn) in app.buttons.iter().enumerate() {
+                let block = Block::default()
+                    .borders(Borders::ALL)
+                    .style(btn.style())
+                    .border_style(btn.style());
 
-impl Widget for SelectedTab {
-    fn render(self, area: Rect, buf: &mut Buffer) {
-        // in a real app these might be separate widgets
-        match self {
-            Self::Tab1 => self.render_tab0(area, buf),
-            Self::Tab2 => self.render_tab1(area, buf),
-            Self::Tab3 => self.render_tab2(area, buf),
-            Self::Tab4 => self.render_tab3(area, buf),
+                let text = Paragraph::new(btn.label).style(btn.style()).alignment(Alignment::Center).block(block);
+
+                f.render_widget(text, button_chunks[i]);
+            }
+        })?;
+
+        // Input handling
+        if event::poll(std::time::Duration::from_millis(40))? {
+            if let Event::Key(key) = event::read()? {
+                match key.code {
+                    KeyCode::Up => app.previous_button(),
+                    KeyCode::Down => app.next_button(),
+                    KeyCode::Enter => {
+                        if app.selected==0{
+                            app.text = "1";
+                        } else if app.selected==1{
+                            app.text = "2";
+                        } else if app.selected==2{
+                            app.text = "3";
+                        } else if app.selected==3{
+                            break
+                        }
+                    },
+                    KeyCode::Char('q') => break,
+                    _ => {}
+                }
+            }
         }
     }
-}
 
-impl SelectedTab {
-    /// Return tab's name as a styled `Line`
-    fn title(self) -> Line<'static> {
-        format!("  {self}  ")
-            .fg(tailwind::SLATE.c200)
-            .bg(self.palette().c900)
-            .into()
-    }
+    // Shutdown terminal
+    crossterm::terminal::disable_raw_mode()?;
+    crossterm::execute!(
+        terminal.backend_mut(),
+        crossterm::terminal::LeaveAlternateScreen
+    )?;
 
-    fn render_tab0(self, area: Rect, buf: &mut Buffer) {
-        Paragraph::new("Hello, World!")
-            .block(self.block())
-            .render(area, buf);
-    }
-
-    fn render_tab1(self, area: Rect, buf: &mut Buffer) {
-        Paragraph::new("Welcome to the Ratatui tabs example!")
-            .block(self.block())
-            .render(area, buf);
-    }
-
-    fn render_tab2(self, area: Rect, buf: &mut Buffer) {
-        Paragraph::new("Look! I'm different than others!")
-            .block(self.block())
-            .render(area, buf);
-    }
-
-    fn render_tab3(self, area: Rect, buf: &mut Buffer) {
-        Paragraph::new("I know, these are some basic changes. But I think you got the main idea.")
-            .block(self.block())
-            .render(area, buf);
-    }
-
-    /// A block surrounding the tab's content
-    fn block(self) -> Block<'static> {
-        Block::bordered()
-            .border_set(symbols::border::PROPORTIONAL_TALL)
-            .padding(Padding::horizontal(1))
-            .border_style(self.palette().c700)
-    }
-
-    const fn palette(self) -> tailwind::Palette {
-        match self {
-            Self::Tab1 => tailwind::BLUE,
-            Self::Tab2 => tailwind::EMERALD,
-            Self::Tab3 => tailwind::INDIGO,
-            Self::Tab4 => tailwind::RED,
-        }
-    }
+    Ok(())
 }

@@ -38,3 +38,5 @@ reqwest = { version = "0.11", features = ["json", "stream"] }
 serde = { version = "1.0", features = ["derive"] }
 itertools = "0.14.0"
 tui-big-text = "0.7.3"
+strum = "0.26" # Use the latest version
+strum_macros = "0.26" # Use the latest version, matching strum

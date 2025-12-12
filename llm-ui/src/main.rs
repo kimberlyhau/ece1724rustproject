@@ -13,6 +13,7 @@ use ratatui::{
     style::{Color, Modifier, Style, Stylize},
     text::{Line, Span, Text},
     widgets::{Block, List, ListItem, Borders, Paragraph, ListState, Wrap},
+    prelude::Alignment,
 };
 use tui_big_text::{BigText, PixelSize};
 use reqwest::Client;
@@ -36,6 +37,9 @@ struct App {
     messages: Vec<String>,
     user_colour:Color,
     llm_colour:Color,
+    // For Menu buttons
+    buttons: Vec<Button>,
+    selected_button: usize,
 }
 
 enum InputMode {
@@ -43,7 +47,37 @@ enum InputMode {
     Editing,
     Fetching,
     Processing,
-    ColourSelection
+    ColourSelection,
+    MainMenu
+}
+
+enum ButtonState {
+    Normal,
+    Focused,
+}
+
+struct Button {
+    label: &'static str,
+    state: ButtonState,
+}
+
+impl Button {
+    fn new(label: &'static str) -> Self {
+        Button {
+            label,
+            state: ButtonState::Normal,
+        }
+    }
+
+    fn style(&self) -> Style {
+        match self.state {
+            ButtonState::Normal => Style::default().fg(Color::White),
+            ButtonState::Focused => Style::default()
+                .fg(Color::Black)
+                .bg(Color::Yellow)
+                .add_modifier(Modifier::BOLD),
+        }
+    }
 }
 
 #[tokio::main]
@@ -87,77 +121,124 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     state.select(Some(0));
     let mut user_colour_pick:Option<Color> = None;
 
-loop {
+    loop {
         match app.input_mode{
-            InputMode::ColourSelection => {
-            terminal.draw(|frame| {
-                let vertical = Layout::vertical([
-                    Constraint::Min(1),
-                    Constraint::Length(5),
-                ]).split(frame.area());
-
-                let list_area = vertical[0];
-                let display_area = vertical[1];
-
-                let items: Vec<ListItem> = options
-                    .iter()
-                    .enumerate()
-                    .map(|(i, &opt)| {
-                        let style = if selected_flags[i] {
-                            Style::default().fg(Color::DarkGray)
-                        } else {
-                            Style::default().fg(opt)
-                        };
-                        ListItem::new(opt.to_string()).style(style)
-                    })
-                    .collect();
-
-                let list = List::new(items)
-                    .block(Block::default().borders(Borders::ALL).title(
-                        match selected_flags.iter().filter(|&n| *n == true).count(){
-                            0 => "Select a Colour for You",
-                            _ => "Select a Colour for LLM",
-                        }))
-                    .highlight_style(Style::default().bg(Color::Blue).fg(Color::White))
-                    .highlight_symbol(">> ");
-
-                frame.render_stateful_widget(list, list_area, &mut state);
-                let colour_info = Paragraph::new(
-                        if let Some(i) = state.selected() {
-                            if let Some(user_colour_picked) = user_colour_pick {
-                                Text::from(vec![
-                                    Line::from(vec![
-                                        Span::raw("Selecting for user: "),
-                                        Span::styled(format!("{}", user_colour_picked.to_string()), Style::default().fg(user_colour_picked)),
-                                    ]),
-                                    Line::from(vec![
-                                        Span::raw("Selecting for LLM: "),
-                                        Span::styled(format!("{}", options[i].to_string()), Style::default().fg(options[i])),
-                                    ]),
-                                    Line::from("Press 'ESC' to return to chat"),
-                                ])
-                            }else{
-                                Text::from(vec![
-                                    Line::from(vec![
-                                        Span::raw("Selecting for user: "),
-                                        Span::styled(format!("{}", options[i].to_string()), Style::default().fg(options[i])),
-                                    ]),
-                                    Line::from("Press 'ESC' to return to chat"),
-                                ])
-                            }
-                        // format!("Selecting:{}\nPress 'ESC' to return to chat",options[i].to_string())
-                        
-                    } else {
-                        //format!("Selecting for you...\nPress 'ESC' to return to chat")
-                        Text::from(vec![
-                            Line::from("Selecting..."),
-                            Line::from("Press 'ESC' to return to chat"),
+            InputMode::MainMenu => {
+                terminal.draw(|frame| {
+                    let vertical = Layout::vertical([
+                            Constraint::Min(1),
+                            Constraint::Min(12),
+                        ]);
+                    let [title_banner,buttons] = vertical.areas(frame.area());
+                    let cols = Layout::default()
+                        .direction(Direction::Horizontal)
+                        .constraints([
+                            Constraint::Percentage(35),
+                            Constraint::Percentage(30), // center column
+                            Constraint::Percentage(35),
                         ])
-                    })
-                    .block(Block::default().borders(Borders::ALL).title("Info"));
+                        .split(buttons);
 
-                frame.render_widget(colour_info, display_area);
-            })?;
+                    // Vertical stack of buttons inside center column
+                    let button_chunks = Layout::default()
+                        .direction(Direction::Vertical)
+                        .constraints([
+                            Constraint::Percentage(25),
+                            Constraint::Percentage(25),
+                            Constraint::Percentage(25),
+                            Constraint::Percentage(25),
+                        ])
+                        .split(cols[1]);
+                    let title = BigText::builder().centered()
+                                .pixel_size(PixelSize::Quadrant)
+                                .style(Style::new().light_blue())
+                                .lines(vec![
+                                    "LLM Chat Interface".into(),
+                                    "~~~~~~~".white().into(),
+                                ])
+                                .build();
+                    frame.render_widget(title, title_banner);
+
+                    for (i, btn) in app.buttons.iter().enumerate() {
+                        let block = Block::default()
+                            .borders(Borders::ALL)
+                            .style(btn.style())
+                            .border_style(btn.style());
+
+                        let text = Paragraph::new(btn.label).style(btn.style()).alignment(Alignment::Center).block(block);
+
+                        frame.render_widget(text, button_chunks[i]);
+                    }
+                })?;
+            }
+            InputMode::ColourSelection => {
+                terminal.draw(|frame| {
+                    let vertical = Layout::vertical([
+                        Constraint::Min(1),
+                        Constraint::Length(5),
+                    ]).split(frame.area());
+
+                    let list_area = vertical[0];
+                    let display_area = vertical[1];
+
+                    let items: Vec<ListItem> = options
+                        .iter()
+                        .enumerate()
+                        .map(|(i, &opt)| {
+                            let style = if selected_flags[i] {
+                                Style::default().fg(Color::DarkGray)
+                            } else {
+                                Style::default().fg(opt)
+                            };
+                            ListItem::new(opt.to_string()).style(style)
+                        })
+                        .collect();
+
+                    let list = List::new(items)
+                        .block(Block::default().borders(Borders::ALL).title(
+                            match selected_flags.iter().filter(|&n| *n == true).count(){
+                                0 => "Select a Colour for You",
+                                _ => "Select a Colour for LLM",
+                            }))
+                        .highlight_style(Style::default().bg(Color::Blue).fg(Color::White));
+
+                    frame.render_stateful_widget(list, list_area, &mut state);
+                    let colour_info = Paragraph::new(
+                            if let Some(i) = state.selected() {
+                                if let Some(user_colour_picked) = user_colour_pick {
+                                    Text::from(vec![
+                                        Line::from(vec![
+                                            Span::raw("Selecting for user: "),
+                                            Span::styled(format!("{}", user_colour_picked.to_string()), Style::default().fg(user_colour_picked)),
+                                        ]),
+                                        Line::from(vec![
+                                            Span::raw("Selecting for LLM: "),
+                                            Span::styled(format!("{}", options[i].to_string()), Style::default().fg(options[i])),
+                                        ]),
+                                        Line::from("Press 'ESC' to return to main menu."),
+                                    ])
+                                }else{
+                                    Text::from(vec![
+                                        Line::from(vec![
+                                            Span::raw("Selecting for user: "),
+                                            Span::styled(format!("{}", options[i].to_string()), Style::default().fg(options[i])),
+                                        ]),
+                                        Line::from("Press 'ESC' to return to chat"),
+                                    ])
+                                }
+                            // format!("Selecting:{}\nPress 'ESC' to return to chat",options[i].to_string())
+                            
+                        } else {
+                            //format!("Selecting for you...\nPress 'ESC' to return to chat")
+                            Text::from(vec![
+                                Line::from("Selecting..."),
+                                Line::from("Press ESC to return to chat"),
+                            ])
+                        })
+                        .block(Block::default().borders(Borders::ALL).title("Info"));
+
+                    frame.render_widget(colour_info, display_area);
+                })?;
             }
             _ => {
                 terminal.draw(|frame| {
@@ -183,7 +264,6 @@ loop {
                         .style(Style::new().light_blue())
                         .lines(vec![
                             "LLM Chat Interface".into(),
-                            "~~~~~".white().into(),
                         ])
                         .build();
                 frame.render_widget(title, title_banner);
@@ -192,21 +272,17 @@ loop {
                     InputMode::Normal => (
                         vec![
                             "Press ".into(),
-                            "q".bold(),
-                            " to exit, ".into(),
                             "e".bold(),
                             " to enter a prompt, ".into(),
-                            "r".bold(),
-                            " to resume a saved chat, ".into(),
-                            "c".bold(),
-                            " to change chat colours.".into(),
+                            "ESC".bold(),
+                            " to return to main menu.".into(),
                         ],
                         Style::default().add_modifier(Modifier::RAPID_BLINK),
                     ),
                     InputMode::Editing => (
                         vec![
                             "Press ".into(),
-                            "Esc".bold(),
+                            "ESC".bold(),
                             " to stop editing, ".into(),
                             "Enter".bold(),
                             " to record the message, ".into(),
@@ -221,13 +297,22 @@ loop {
                     ),
                     InputMode::Fetching => (
                         vec![
-                            "Enter chat ID to resume ".into(),
+                            "Press ".into(),
+                            "ESC".bold(),
+                            " to return to main menu, ".into(),
+                            "enter chat ID to resume ".into(),
                         ],
                         Style::default(),
                     ),
                     InputMode::ColourSelection => (
                         vec![
                             "Processing colour selection".into(),
+                        ],
+                        Style::default(),
+                    ),
+                    InputMode::MainMenu => (
+                        vec![
+                            "Main menu".into(),
                         ],
                         Style::default(),
                     ),
@@ -255,18 +340,19 @@ loop {
                         Paragraph::new(app.input.as_str())
                         .style(Style::default().fg(Color::Yellow))
                         .block(Block::bordered().title("Colour Input")),
+                    InputMode::MainMenu => 
+                        Paragraph::new(app.input.as_str())
+                        .style(Style::default().fg(Color::Yellow))
+                        .block(Block::bordered().title("Main Menu")),
                 };
                 frame.render_widget(input, input_area);
                 match app.input_mode {
-                // Hide the cursor. `Frame` does this by default, so we don't need to do anything here
-                    InputMode::Normal => {}
 
-                    // Make the cursor visible and ask ratatui to put it at the specified coordinates after
-                    // rendering
+                // Hide the cursor.
+                    InputMode::Normal => {}
                     #[allow(clippy::cast_possible_truncation)]
                     InputMode::Editing => frame.set_cursor_position(Position::new(
                         // Draw the cursor at the current position in the input field.
-                        // This position is can be controlled via the left and right arrow key
                         input_area.x + app.character_index as u16 + 1,
                         // Move one line down, from the border to the input line
                         input_area.y + 1,
@@ -277,6 +363,7 @@ loop {
                         input_area.y + 1,
                     )),
                     InputMode::ColourSelection => {},
+                    InputMode::MainMenu => {},
                 }
 
                 let mut spans=Vec::new();
@@ -340,20 +427,17 @@ loop {
                         KeyCode::Char('r') => {
                             app.input_mode = InputMode::Fetching;
                         }
-                        KeyCode::Char('c') => {
-                            selected_flags = vec![false; options.len()];
-                            state = ListState::default();
-                            state.select(Some(0));
-                            user_colour_pick = None;
-                            app.input_mode = InputMode::ColourSelection;
+                        KeyCode::Esc => {
+                            app.selected_button=0;
+                            app.input_mode = InputMode::MainMenu;
                         }
                         KeyCode::Up => scroll_offset = scroll_offset.saturating_sub(1),
                         KeyCode::Down => scroll_offset = scroll_offset.saturating_add(1),
                         KeyCode::PageUp => scroll_offset = scroll_offset.saturating_sub(5),
                         KeyCode::PageDown => scroll_offset = scroll_offset.saturating_add(5),
-                        KeyCode::Char('q') => {
-                            break;
-                        }
+                        // KeyCode::Char('q') => {
+                        //     break;
+                        // }
                         _ => {}
                     },
                     InputMode::Editing if key.kind == KeyEventKind::Press => match key.code {
@@ -372,9 +456,9 @@ loop {
                         KeyCode::Down => scroll_offset = scroll_offset.saturating_add(1),
                         KeyCode::PageUp => scroll_offset = scroll_offset.saturating_sub(5),
                         KeyCode::PageDown => scroll_offset = scroll_offset.saturating_add(5),
-                        KeyCode::Char('q') => {
-                            break;
-                        }
+                        // KeyCode::Char('q') => {
+                        //     break;
+                        // }
                         _ => {}
                     },
                     InputMode::Fetching if key.kind == KeyEventKind::Press => match key.code {
@@ -383,12 +467,35 @@ loop {
                         KeyCode:: Backspace => app.delete_char(),
                         KeyCode:: Left => app.move_cursor_left(),
                         KeyCode:: Right => app.move_cursor_right(),
-                        KeyCode:: Esc => app.input_mode = InputMode::Normal,
+                        KeyCode:: Esc => {
+                            app.selected_button=0;
+                            app.input_mode = InputMode::MainMenu;
+                        },
                         _ => {}
                     },
                     InputMode::Fetching => {},
+                    InputMode::MainMenu => match key.code {
+                        KeyCode::Up => app.previous_button(),
+                        KeyCode::Down => app.next_button(),
+                        KeyCode::Enter => {
+                            if app.selected_button==0{
+                                app.input_mode = InputMode::Normal;
+                            } else if app.selected_button==1{
+                                app.input_mode = InputMode::Fetching;
+                            } else if app.selected_button==2{
+                                selected_flags = vec![false; options.len()];
+                                state = ListState::default();
+                                state.select(Some(0));
+                                user_colour_pick = None;
+                                app.input_mode = InputMode::ColourSelection;
+                            } else if app.selected_button==3{
+                                break
+                            }
+                        },
+                        _ => {}
+                    },
                     InputMode::ColourSelection => match key.code {
-                        KeyCode::Char('q') => break,
+                        // KeyCode::Char('q') => break,
                         KeyCode::Up => {
                             if let Some(mut i) = state.selected() {
                                 i = previous_selectable(&selected_flags, i);
@@ -400,6 +507,10 @@ loop {
                                 i = next_selectable(&selected_flags, i);
                                 state.select(Some(i));
                             }
+                        }
+                        KeyCode::Esc => {
+                            app.selected_button=0;
+                            app.input_mode = InputMode::MainMenu;
                         }
                         KeyCode::Enter => {
                             if let Some(i) = state.selected() {
@@ -416,7 +527,6 @@ loop {
                                     }else if count==1{
                                         user_colour_pick=Some(options[i]);
                                     }
-                                    // Move to next selectable
                                     let next = next_selectable(&selected_flags, i);
                                     state.select(Some(next));
                                 }
@@ -428,7 +538,6 @@ loop {
             }
         }
         
-        // Non-blocking receive from async task
         while let Ok(c) = rx.try_recv() {
             if c=="Thread work complete!"{
                 app.input_mode = InputMode::Normal;
@@ -436,12 +545,10 @@ loop {
                 receiving = "".to_string();
             }
             else {
-                // app.push_str(c);
                 receiving.push_str(&c);
             }
         }
 
-        // Tiny sleep to avoid hot loop
         tokio::time::sleep(Duration::from_millis(5)).await;
         
     }
@@ -537,20 +644,43 @@ impl App {
         Self { 
             llm_messages: Vec::new(),
             input: String::new(),
-            input_mode: InputMode::Normal,
+            input_mode: InputMode::MainMenu,
             messages: Vec::new(),
             character_index: 0, 
             user_colour:  Color::Red,
             llm_colour:  Color::Green,
+            buttons: vec![
+                Button::new("Chat Screen"),
+                Button::new("Chat History"),
+                Button::new("Text Colour Selection"),
+                Button::new("Quit"),
+            ],
+            selected_button: 0,
         }
     }
 
-    // fn push_char(&mut self, c: char) {
-    //     self.llm_messages.push(c);
-    // }
-    // fn push_str(&mut self, c: String) {
-    //     self.llm_messages.push_str(&c);
-    // }
+    fn update_button_states(&mut self) {
+        for (i, btn) in self.buttons.iter_mut().enumerate() {
+            if i == self.selected_button {
+                btn.state = ButtonState::Focused;
+            } else {
+                btn.state = ButtonState::Normal;
+            }
+        }
+    }
+
+    fn next_button(&mut self) {
+        self.selected_button = (self.selected_button + 1).min(self.buttons.len() - 1);
+        self.update_button_states();
+    }
+
+    fn previous_button(&mut self) {
+        if self.selected_button > 0 {
+            self.selected_button -= 1;
+        }
+        self.update_button_states();
+    }
+
     fn move_cursor_left(&mut self) {
         let cursor_moved_left = self.character_index.saturating_sub(1);
         self.character_index = self.clamp_cursor(cursor_moved_left);
@@ -634,8 +764,8 @@ struct ServerResponses {
 }
 
 async fn run_llm(tx: mpsc::Sender<String>, input:String) -> Result<()>{
-    let prompt = "<s>[INST] <<SYS>>You are a helpful assistant.<</SYS>> ".to_owned()+&input+"[/INST]";
-    tx.send(prompt.to_string()).await.ok();
+    let prompt = "<s>[INST] <<SYS>>You are a helpful assistant.<</SYS>> ".to_owned()+&input+" [/INST]";
+    // tx.send(prompt.to_string()).await.ok();
 
     // send HTTP POST request with prompt to llm-server
     let addr = "127.0.0.1:4000";
