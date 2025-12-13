@@ -21,7 +21,7 @@ use app::{App, ChatOutcome, Screen};
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     color_eyre::install()?;
-    // Setup terminal
+    // Setup terminal   
     enable_raw_mode()?;
     let mut stdout = io::stdout();
     execute!(stdout, EnterAlternateScreen)?;
