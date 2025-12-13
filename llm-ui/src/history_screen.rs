@@ -22,9 +22,12 @@ pub fn render_history(frame: &mut Frame, app: &App) {
     let history_area = vertical[2];
 
     let help_msg = vec![
-        "Enter chat ID below to resume chat, or enter 0 to start a new chat. Press ".into(),
+        "Enter chat ID below to resume chat. Press ".into(),
         "Enter".bold(),
         " to submit.".into(),
+        " Press ".into(),
+        "ESC".bold(),
+        " to return to main menu.".into(),
     ];
     let style = Style::default();
 
@@ -41,7 +44,7 @@ pub fn render_history(frame: &mut Frame, app: &App) {
         input_area.y + 1,
     ));
 
-    let items: Vec<ListItem> = app.llm_messages
+    let items: Vec<ListItem> = app.history_messages
         .iter()
         .enumerate()
         .map(|(i, msg)| {
@@ -50,7 +53,7 @@ pub fn render_history(frame: &mut Frame, app: &App) {
     
     let list = List::new(items)
         .block(Block::default().borders(Borders::ALL).title("Chat History"))
-        .highlight_style(Style::default().bg(Color::Cyan).fg(Color::LightMagenta))
+        .highlight_style(Style::default())
         .highlight_symbol(">> ");
     frame.render_widget(list, history_area);
     

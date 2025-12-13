@@ -4,7 +4,7 @@ use serde::Deserialize;
 use serde_json::json;
 use futures::StreamExt;
 use anyhow::Result;
-use ratatui::style::Color;
+use ratatui::style::{Color, Style, Modifier};
 use ratatui::widgets::ListState;
 
 pub enum InputMode {
@@ -12,6 +12,8 @@ pub enum InputMode {
     Editing,
     Processing,
     ColourSelection,
+    MainMenu,
+    Fetching,
 }
 
 pub enum Screen {
@@ -19,11 +21,17 @@ pub enum Screen {
     History,
     Chat,
     ColourSelection,
+    MainMenu,
 }
 
 pub enum ChatOutcome {
-    Contiune,
+    Continue,
     Quit,
+}
+
+pub enum ButtonState {
+    Normal,
+    Focused,
 }
 
 pub static OPTIONS: &[Color] = &[
@@ -64,6 +72,30 @@ pub enum FetchResponses {
     Error {message: String},
 }
 
+pub struct Button {
+    pub label: &'static str,
+    pub state: ButtonState,
+}
+impl Button {
+    pub fn new(label: &'static str) -> Self {
+        Button {
+            label,
+            state: ButtonState::Normal,
+        }
+    }
+
+    pub fn style(&self) -> Style {
+        match self.state {
+            ButtonState::Normal => Style::default().fg(Color::White),
+            ButtonState::Focused => Style::default()
+                .fg(Color::Black)
+                .bg(Color::Yellow)
+                .add_modifier(Modifier::BOLD),
+        }
+    }
+}
+
+
 pub struct App {
     //pub visible_text: String,
     pub llm_messages: Vec<String>,
@@ -74,6 +106,7 @@ pub struct App {
     pub input_mode: InputMode,
     /// History of recorded messages
     pub messages: Vec<String>,
+    pub history_messages: Vec<String>,
 
     pub username: String,
     pub screen: Screen,
@@ -87,6 +120,9 @@ pub struct App {
     
     pub scroll_offset: u16,
     pub receiving: String,
+
+    pub buttons: Vec<Button>,
+    pub selected_button: usize,
 }
 
 impl App {
@@ -95,6 +131,7 @@ impl App {
         input: String::new(),
         input_mode: InputMode::Normal,
         messages: Vec::new(),
+        history_messages: Vec::new(),
         character_index: 0,
         username: String::new(), 
         screen: Screen::SignIn,
@@ -105,16 +142,38 @@ impl App {
         user_colour_pick: None,
         scroll_offset: 0,
         receiving: String::new(),
+        buttons: vec![
+                Button::new("New Chat"),
+                Button::new("Resume Chat from History"),
+                Button::new("Text Colour Selection"),
+                Button::new("Quit"),
+        ],
+        selected_button: 0,
         }
     }
-    /*
-    pub fn push_char(&mut self, c: char) {
-        self.visible_text.push(c);
+
+    fn update_button_states(&mut self) {
+        for (i, btn) in self.buttons.iter_mut().enumerate() {
+            if i == self.selected_button {
+                btn.state = ButtonState::Focused;
+            } else {
+                btn.state = ButtonState::Normal;
+            }
+        }
     }
-    pub fn push_str(&mut self, c: String) {
-        self.visible_text.push_str(&c);
+
+    pub fn next_button(&mut self) {
+        self.selected_button = (self.selected_button + 1).min(self.buttons.len() - 1);
+        self.update_button_states();
     }
-    */
+
+    pub fn previous_button(&mut self) {
+        if self.selected_button > 0 {
+            self.selected_button -= 1;
+        }
+        self.update_button_states();
+    }
+
     pub fn move_cursor_left(&mut self) {
         let cursor_moved_left = self.character_index.saturating_sub(1);
         self.character_index = self.clamp_cursor(cursor_moved_left);
@@ -195,7 +254,6 @@ impl App {
         tokio::spawn(async move {
             let _ = run_history(tx, username).await;
         });
-        //self.screen = Screen::History;
     }
 
     pub fn start_new_chat(&mut self) {

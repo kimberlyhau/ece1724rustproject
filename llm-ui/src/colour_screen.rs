@@ -11,11 +11,10 @@ use crate::app::App;
 use crate::app::OPTIONS as options;
 
 pub fn render_colour(frame: &mut Frame, app: &mut App) {
-    let area = frame.area();
     let vertical = Layout::vertical([
         Constraint::Min(1),
         Constraint::Length(5),
-    ]).split(area);
+    ]).split(frame.area());
 
     let list_area = vertical[0];
     let display_area = vertical[1];
@@ -54,7 +53,7 @@ if let Some(i) = app.state.selected() {
                     Span::raw("Selecting for LLM: "),
                     Span::styled(format!("{}", options[i].to_string()), Style::default().fg(options[i])),
                 ]),
-                Line::from("Press 'ESC' to return to chat"),
+                Line::from("Press 'ESC' to return to main menu."),
             ])
         }else{
             Text::from(vec![
@@ -62,7 +61,7 @@ if let Some(i) = app.state.selected() {
                     Span::raw("Selecting for user: "),
                     Span::styled(format!("{}", options[i].to_string()), Style::default().fg(options[i])),
                 ]),
-                Line::from("Press 'ESC' to return to chat"),
+                Line::from("Press 'ESC' to return to main menu."),
                 ])
         }
         // format!("Selecting:{}\nPress 'ESC' to return to chat",options[i].to_string())

@@ -16,9 +16,6 @@ pub async fn key_handler(app: &mut App, tx: mpsc::Sender<String>, rx: &mut mpsc:
         if let Event::Key(key) = event::read()? {
             match app.screen {
                 Screen::SignIn => {
-                    if key.code == KeyCode::Char('q') {
-                        return Ok(ChatOutcome::Quit);
-                    }
                     match key.code {
                         KeyCode::Enter => {
                             app.set_profile(tx.clone());
@@ -32,9 +29,6 @@ pub async fn key_handler(app: &mut App, tx: mpsc::Sender<String>, rx: &mut mpsc:
                     }
                 }
                 Screen::History => {
-                    if key.code == KeyCode::Char('q') {
-                        return Ok(ChatOutcome::Quit);
-                    }
                     match key.code {
                         KeyCode::Enter => {
                             if app.input == "0" {
@@ -47,29 +41,26 @@ pub async fn key_handler(app: &mut App, tx: mpsc::Sender<String>, rx: &mut mpsc:
                         KeyCode::Backspace => app.delete_char(),
                         KeyCode::Left => app.move_cursor_left(),
                         KeyCode::Right => app.move_cursor_right(),
+                        KeyCode::Esc => {
+                            app.selected_button=0;
+                            app.input_mode = InputMode::MainMenu;
+                            app.screen = crate::app::Screen::MainMenu;
+                        }
                         _ => {}
                     }
                 }
-                Screen::Chat | Screen::ColourSelection => {
+                Screen::Chat | Screen::ColourSelection | Screen::MainMenu => {
                     let mut scroll_offset = app.scroll_offset.clone();
-                    if key.code == KeyCode::Char('q') {
-                        return Ok(ChatOutcome::Quit);
-                    }
+                    
                     match app.input_mode {
                         InputMode::Normal => match key.code {
                             KeyCode::Char('e') => {
                                 app.input_mode = InputMode::Editing;
                             }
-                            KeyCode::Char('q') => {
-                                return Ok(ChatOutcome::Quit);
-                            }
-                            KeyCode::Char('c') => {
-                                app.selected_flags = vec![false; 14];
-                                app.state = ListState::default();
-                                app.state.select(Some(0));
-                                app.user_colour_pick = None;
-                                app.input_mode = InputMode::ColourSelection;
-                                app.screen = crate::app::Screen::ColourSelection;
+                            KeyCode::Esc => {
+                                app.selected_button=0;
+                                app.input_mode = InputMode::MainMenu;
+                                app.screen = crate::app::Screen::MainMenu;
                             }
                             KeyCode::Up => scroll_offset = scroll_offset.saturating_sub(1),
                             KeyCode::Down => scroll_offset = scroll_offset.saturating_add(1),
@@ -93,15 +84,9 @@ pub async fn key_handler(app: &mut App, tx: mpsc::Sender<String>, rx: &mut mpsc:
                             KeyCode::Down => scroll_offset = scroll_offset.saturating_add(1),
                             KeyCode::PageUp => scroll_offset = scroll_offset.saturating_sub(5),
                             KeyCode::PageDown => scroll_offset = scroll_offset.saturating_add(5),
-                            KeyCode::Char('q') => {
-                                return Ok(ChatOutcome::Quit);
-                            }   
                             _ => {}
                         },
                         InputMode::ColourSelection => match key.code {
-                            KeyCode::Char('q') => {
-                                return Ok(ChatOutcome::Quit);
-                            },
                             KeyCode::Up => {
                                 if let Some(mut i) = app.state.selected() {
                                     i = previous_selectable(&app.selected_flags, i);
@@ -125,8 +110,8 @@ pub async fn key_handler(app: &mut App, tx: mpsc::Sender<String>, rx: &mut mpsc:
                                             if let Some(user_colour_picked) = app.user_colour_pick {
                                                 app.user_colour=user_colour_picked;
                                             }
-                                            app.input_mode = InputMode::Normal;
-                                            app.screen = crate::app::Screen::Chat;
+                                            app.input_mode = InputMode::MainMenu;
+                                            app.screen = crate::app::Screen::MainMenu;
                                         }else if count==1{
                                             app.user_colour_pick=Some(options[i]);
                                         }
@@ -137,11 +122,51 @@ pub async fn key_handler(app: &mut App, tx: mpsc::Sender<String>, rx: &mut mpsc:
                                 }
                             }
                             KeyCode::Esc => {
-                                app.input_mode = InputMode::Normal;
-                                app.screen = crate::app::Screen::Chat;
+                                app.input_mode = InputMode::MainMenu;
+                                app.screen = crate::app::Screen::MainMenu;
                             }
                             _ => {}
                         }
+                        InputMode::MainMenu => match key.code {
+                            KeyCode::Up => app.previous_button(),
+                            KeyCode::Down => app.next_button(),
+                            KeyCode::Enter => {
+                                if app.selected_button==0{
+                                    app.messages.clear();
+                                    app.llm_messages.clear();
+                                    app.input_mode = InputMode::Normal;
+                                    app.screen = crate::app::Screen::Chat;
+                                } else if app.selected_button==1{
+                                    app.input_mode = InputMode::Fetching;
+                                    app.screen = crate::app::Screen::History;
+                                } else if app.selected_button==2{
+                                    app.selected_flags = vec![false; options.len()];
+                                    app.state = ListState::default();
+                                    app.state.select(Some(0));
+                                    app.user_colour_pick = None;
+                                    app.input_mode = InputMode::ColourSelection;
+                                    app.screen = crate::app::Screen::ColourSelection;
+                                } else if app.selected_button==3{
+                                    return Ok(ChatOutcome::Quit);
+                                }
+                            },
+                            _ => {}
+                        }
+                        InputMode::Fetching if key.kind == KeyEventKind::Press => match key.code {
+                            KeyCode:: Enter => {app.fetch_chat(tx.clone())},
+                            KeyCode:: Char(to_insert) => app.enter_char(to_insert),
+                            KeyCode:: Backspace => app.delete_char(),
+                            KeyCode:: Left => app.move_cursor_left(),
+                            KeyCode:: Right => app.move_cursor_right(),
+                            KeyCode:: Esc => {
+                                app.selected_button=0;
+                                app.input_mode = InputMode::MainMenu;
+                                app.screen = crate::app::Screen::MainMenu;
+                            },
+                            _ => {}
+                        },
+                        InputMode::Fetching => {},
+                        
                     }
                     app.scroll_offset = scroll_offset;
                 }
@@ -150,7 +175,7 @@ pub async fn key_handler(app: &mut App, tx: mpsc::Sender<String>, rx: &mut mpsc:
     }
     
     tokio::time::sleep(Duration::from_millis(5)).await;
-    Ok(ChatOutcome::Contiune)
+    Ok(ChatOutcome::Continue)
 }
 
 fn next_selectable(selected_flags: &Vec<bool>, mut index: usize) -> usize {
@@ -184,10 +209,12 @@ fn process_incoming_message(app: &mut App, rx: &mut mpsc::Receiver<String>) {
         if msg == "Thread work complete!" {
             match app.screen {
                 Screen::SignIn => {
-                    app.screen = Screen::History;
+                    app.screen = Screen::MainMenu;
+                    app.input_mode = InputMode::MainMenu;
                 }
                 Screen::History => {
                     app.screen = Screen::Chat;
+                    app.input_mode = InputMode::Normal;
                 }
                 Screen::Chat => {
                     app.input_mode = InputMode::Normal;
@@ -201,7 +228,7 @@ fn process_incoming_message(app: &mut App, rx: &mut mpsc::Receiver<String>) {
 
         match app.screen {
             Screen::SignIn => {
-                app.llm_messages.push(msg);
+                app.history_messages.push(msg);
             }
             Screen::History => {
                 let start_index = match msg.find("[") {
@@ -230,6 +257,10 @@ fn process_incoming_message(app: &mut App, rx: &mut mpsc::Receiver<String>) {
             Screen::ColourSelection => {
                 // nothing to do
             }
+            Screen::MainMenu => {
+                // nothing to do
+            }
+            
         }
     }
 }

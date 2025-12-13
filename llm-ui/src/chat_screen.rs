@@ -1,4 +1,3 @@
-
 use ratatui::Frame;
 use ratatui::{
     layout::{Constraint, Layout, Position,  Rect, Direction},
@@ -6,6 +5,7 @@ use ratatui::{
     text::{Line, Span, Text},
     widgets::{Block, Borders, Paragraph, Wrap},
 };
+use tui_big_text::{BigText, PixelSize};
 
 use itertools::Itertools;
 use itertools::EitherOrBoth::{Both, Left, Right};
@@ -19,39 +19,56 @@ pub fn render_chat(frame: &mut Frame, app: &App) {
     let mut scroll_offset: u16 = 0;
 
     let vertical = Layout::vertical([
+        Constraint::Min(1),
         Constraint::Length(1),
         // Constraint::Min(1),
         Constraint::Min(1),
         Constraint::Length(3),
     ]);
-    let [help_area, response_area, input_area] = vertical.areas(frame.area());
+    let [title_banner,help_area, response_area, input_area] = vertical.areas(frame.area());
     let horizontal = Layout::default()
         .direction(Direction::Horizontal)
         .constraints([Constraint::Percentage(95), Constraint::Percentage(5)].as_ref())
         .split(response_area);
     let chat_area = horizontal[0];
     let scrollbar_area = horizontal[1];
+
+    let title = BigText::builder().centered()
+        .pixel_size(PixelSize::Quadrant)
+        .style(Style::new().light_blue())
+        .lines(vec![
+            "LLM Chat Interface".into(),
+        ])
+        .build();
+    frame.render_widget(title, title_banner);
     
     let (msg, style) = match app.input_mode {
         InputMode::Normal => (
             vec![
                 "Press ".into(),
-                "q".bold(),
-                " to exit, ".into(),
                 "e".bold(),
                 " to enter a prompt, ".into(),
-                "c".bold(),
-                " to change chat colours.".into(),
+                "ESC".bold(),
+                " to return to main menu.".into(),
             ],
             Style::default().add_modifier(Modifier::RAPID_BLINK),
         ),
         InputMode::Editing => (
             vec![
                 "Press ".into(),
-                "Esc".bold(),
+                "ESC".bold(),
                 " to stop editing, ".into(),
                 "Enter".bold(),
-                " to record the message".into(),
+                " to record the message, ".into(),
+            ],
+            Style::default(),
+        ),
+        InputMode::Fetching => (
+            vec![
+                "Press ".into(),
+                "ESC".bold(),
+                " to return to main menu, ".into(),
+                "enter chat ID to resume ".into(),
             ],
             Style::default(),
         ),
@@ -64,6 +81,12 @@ pub fn render_chat(frame: &mut Frame, app: &App) {
         InputMode::ColourSelection => (
             vec![
                 "Processing colour selection".into(),
+            ],
+            Style::default(),
+        ),
+        InputMode::MainMenu => (
+            vec![
+                "Main menu".into(),
             ],
             Style::default(),
         ),
@@ -83,10 +106,18 @@ pub fn render_chat(frame: &mut Frame, app: &App) {
             Paragraph::new(app.input.as_str())
             .style(Style::default().fg(Color::Yellow))
             .block(Block::bordered().title("Input")),
+        InputMode::Fetching => 
+            Paragraph::new(app.input.as_str())
+            .style(Style::default().fg(Color::Cyan))
+            .block(Block::bordered().title("Chat ID Input")),
         InputMode::ColourSelection => 
             Paragraph::new(app.input.as_str())
             .style(Style::default().fg(Color::Yellow))
             .block(Block::bordered().title("Colour Input")),
+        InputMode::MainMenu => 
+            Paragraph::new(app.input.as_str())
+            .style(Style::default().fg(Color::Yellow))
+            .block(Block::bordered().title("Main Menu")),
     };
     
     frame.render_widget(input, input_area);
@@ -106,6 +137,11 @@ pub fn render_chat(frame: &mut Frame, app: &App) {
         )),
         InputMode::Processing => {},
         InputMode::ColourSelection => {},
+        InputMode::Fetching => frame.set_cursor_position(Position::new(
+            input_area.x + app.character_index as u16 + 1,
+            input_area.y + 1,
+        )),
+        InputMode::MainMenu => {},
     }
 
     let mut spans=Vec::new();
