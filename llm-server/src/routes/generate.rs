@@ -51,7 +51,9 @@ pub async fn generate(
 
     add_user(&state.db_conn.lock().unwrap(), request.username.clone()).unwrap();
     let user_id = get_user_id(&state.db_conn.lock().unwrap(), &request.username).unwrap();
-    let chat_id = next_chat_id(&state.db_conn.lock().unwrap(), user_id).unwrap();
+    let chat_id = request
+        .chat_id
+        .unwrap_or_else(|| next_chat_id(&state.db_conn.lock().unwrap(), user_id).unwrap());
 
     // START GENERATION IN BLOCKING THREAD
     if !invalid {

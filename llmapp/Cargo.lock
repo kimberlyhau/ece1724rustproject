@@ -797,6 +797,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d9c4f5dac5e15c24eb999c26181a6ca40b39fe946cbe4c263c7209467bc83af2"
 
 [[package]]
+name = "font8x8"
+version = "0.3.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "875488b8711a968268c7cf5d139578713097ca4635a76044e8fe8eedf831d07e"
+
+[[package]]
 name = "foreign-types"
 version = "0.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1565,10 +1571,13 @@ dependencies = [
  "hf-hub",
  "ratatui",
  "serde_json",
+ "strum",
+ "strum_macros",
  "tokenizers",
  "tokio",
  "tracing-subscriber",
  "tui",
+ "tui-big-text",
 ]
 
 [[package]]
@@ -3046,6 +3055,18 @@ dependencies = [
  "crossterm 0.25.0",
  "unicode-segmentation",
  "unicode-width 0.1.14",
+]
+
+[[package]]
+name = "tui-big-text"
+version = "0.7.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c7876e22ef305de349de2ef40197455a84980f1597277ce7fb2008989b19c572"
+dependencies = [
+ "derive_builder",
+ "font8x8",
+ "itertools 0.14.0",
+ "ratatui",
 ]
 
 [[package]]
