@@ -13,7 +13,7 @@ use tokio_stream::{wrappers::UnboundedReceiverStream, Stream, StreamExt};
 use std::sync::Mutex;
 
 use crate::{
-    engine::{EventToServer, EXAMPLE_MODEL},
+    engine::{EventToServer, EXAMPLE_MODEL, ClientRequest},
     state::AppState,
     types::GenerateRequest,
     chat_history::{add_message, add_user, next_chat_id, get_user_id},
@@ -63,7 +63,19 @@ pub async fn generate(
         let _ = task::spawn_blocking(move || {
             // store request in sqlite database
             add_message(&blocking_state.db_conn.lock().unwrap(), blocking_request.username.clone(), 1, chat_id, &blocking_request.prompt).unwrap();
-            start_generation(blocking_state, blocking_request, blocking_sender);
+            
+            // send client request into the inference engine worker thread
+            let client_request = ClientRequest {
+                prompt: blocking_request.prompt.clone(),
+                params: blocking_request.params.clone(),
+                sender: blocking_sender.clone(),
+            };
+
+            if let Err(err) = blocking_state.client_request_sender.send(client_request) {
+                let _ = blocking_sender.send(EventToServer::Error {
+                    message: format!("failed to enqueue client request: {err}"),
+                });
+            }
         });
     }
     // close sender used for validation
@@ -103,19 +115,4 @@ pub async fn generate(
             .interval(Duration::from_secs(15))
             .text("keep-alive"),
     )
-}
-
-fn start_generation(
-    state: Arc<AppState>,
-    request: GenerateRequest,
-    sender: mpsc::UnboundedSender<EventToServer>,
-) {
-    // each thread increments ARC to access the shared engine
-    let engine = Arc::clone(&state.engine);
-    // start gen using round robin decode engine
-    if let Err(err) = engine.generate(&request.prompt, &request.params, &sender) {
-        let _ = sender.send(EventToServer::Error {
-            message: err.to_string(),
-        });
-    }
 }

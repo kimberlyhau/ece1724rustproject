@@ -42,6 +42,13 @@ pub enum EventToServer {
     Error {message: String},
 }
 
+// Client request sent from the /generate handler into the inference engine worker thread to generate LLM responses
+pub struct ClientRequest {
+    pub prompt: String,
+    pub params: GenerationParams,
+    pub sender: UnboundedSender<EventToServer>,
+}
+
 impl InferenceEngine {
     pub fn new() -> Result<Self> {
         Self::from_model(EXAMPLE_MODEL)
