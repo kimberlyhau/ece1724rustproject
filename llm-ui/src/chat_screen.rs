@@ -16,7 +16,7 @@ use crate::app::{App, InputMode};
 pub fn render_chat(frame: &mut Frame, app: &App) {
     let user:&str = "You: ";
     let llm:&str = "LLM: ";
-    let mut scroll_offset: u16 = 0;
+    let mut scroll_offset = app.scroll_offset;
 
     let vertical = Layout::vertical([
         Constraint::Min(1),
