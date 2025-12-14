@@ -123,10 +123,10 @@ impl InferenceEngine {
         let stream = TokenOutputStream::new(self.tokenizer.clone());
         let cache = llama_model::Cache::new(true, self.dtype, &self.config, &self.device)?;
         let sampler = LogitsProcessor::from_sampling(
-            42,
+            13,
             Sampling::TopP {
-                p: 0.9,
-                temperature: 0.7,
+                p: 0.95,
+                temperature: 0.8,
             },
         );
         let eos_token = stream.get_token("</s>");

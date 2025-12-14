@@ -7,6 +7,9 @@ pub struct GenerateRequest {
     // text prompt to feed into the model
     pub prompt: String,
     #[serde(default)]
+    // current user message without system prompt/history
+    pub user_message: String,
+    #[serde(default)]
     // to load other models
     pub model: Option<String>,
     #[serde(default)]

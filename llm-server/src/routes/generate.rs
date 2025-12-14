@@ -61,8 +61,15 @@ pub async fn generate(
         let blocking_sender = sender.clone();
         let blocking_request = request.clone();
         let _ = task::spawn_blocking(move || {
-            // store request in sqlite database
-            add_message(&blocking_state.db_conn.lock().unwrap(), blocking_request.username.clone(), 1, chat_id, &blocking_request.prompt).unwrap();
+            // store only cur user message in the database
+            add_message(
+                &blocking_state.db_conn.lock().unwrap(),
+                blocking_request.username.clone(),
+                1,
+                chat_id,
+                &blocking_request.user_message,
+            )
+            .unwrap();
             
             // send client request into the inference engine worker thread
             let client_request = ClientRequest {

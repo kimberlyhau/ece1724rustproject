@@ -245,21 +245,56 @@ impl App {
         self.character_index = 0;
     }
 
+    fn build_chat_history_prompt(&self) -> String {
+        let mut prompt = String::new();
+
+        // following chat template for TinyLlama-1.1B-Chat-v1.0 model from HuggingFace
+        prompt.push_str("<|system|>\n");
+        prompt.push_str("You are a helpful assistant. You are able to remember context and details about the user through their past messages.");
+        prompt.push_str("</s>\n");
+
+        // build context from chat history
+        let pair_count = self.messages.len().min(self.llm_messages.len());
+        for i in 0..pair_count {
+            prompt.push_str("<|user|>\n");
+            prompt.push_str(&self.messages[i]);
+            prompt.push_str("</s>\n");
+
+            prompt.push_str("<|assistant|>\n");
+            prompt.push_str(&self.llm_messages[i]);
+            prompt.push_str("</s>\n");
+        }
+
+        // last client message
+        if self.messages.len() > self.llm_messages.len() {
+            if let Some(last_user) = self.messages.last() {
+                prompt.push_str("<|user|>\n");
+                prompt.push_str(last_user);
+                prompt.push_str("</s>\n");
+            }
+        }
+
+        // Add assistant header to indicate model should generate the next reply.
+        prompt.push_str("<|assistant|>\n");
+
+        prompt
+    }
+
     pub fn submit_message(&mut self, tx: mpsc::Sender<String>) {
         self.input_mode = InputMode::Processing;
-        self.messages.push(self.input.clone());
+        // latest raw user message (without system / history)
+        let user_message = self.input.clone();
+        self.messages.push(user_message.clone());
+        let prompt = self.build_chat_history_prompt();
         // reset tok/s for new response
         self.token_count = 0;
         self.stream_start = None;
-        let input = self.input.clone();
         self.input.clear();
         self.reset_cursor();
         let username = self.username.clone();
         let chat_id = self.chat_id;
-        // eprintln!("Debug information: {:?}", input);
         tokio::spawn(async move {
-            let _ = run_llm(tx, input, username, chat_id).await;
-            // async_text_stream(tx, input);
+            let _ = run_llm(tx, prompt, username, chat_id, user_message).await;
         });
     }
 
@@ -311,17 +346,15 @@ pub async fn get_next_chat_id_for_user(username: String) -> Result<i32> {
     Ok(body.chat_id)
 }
 
-async fn run_llm(tx: mpsc::Sender<String>, input:String, username:String, chat_id: Option<i32>) -> Result<()>{
-    let prompt = "<s>[INST] <<SYS>>You are a helpful assistant.<</SYS>> ".to_owned()+&input+" [/INST]";
-    // tx.send(prompt.to_string()).await.ok();
-
+async fn run_llm(tx: mpsc::Sender<String>, prompt: String, username:String, chat_id: Option<i32>, user_message: String) -> Result<()>{
     // send HTTP POST request with prompt to llm-server
+    // tx.send(prompt.to_string()).await.ok();
     let addr = "127.0.0.1:4000";
     let prompt_post_url = format!("http://{addr}/generate");
     let client = Client::new();
     let response = client
         .post(&prompt_post_url)
-        .json(&json!({ "prompt": prompt , "username": username, "chat_id": chat_id}))
+        .json(&json!({ "prompt": prompt , "user_message": user_message, "username": username, "chat_id": chat_id}))
         .send()
         .await?;
 
