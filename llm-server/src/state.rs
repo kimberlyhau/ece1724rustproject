@@ -1,19 +1,23 @@
 use std::sync::{Arc, Mutex};
+use std::sync::mpsc::Sender;
 
-use crate::engine::InferenceEngine;
+use crate::engine::ClientRequest;
 
 pub struct AppState {
-    pub engine: Arc<Mutex<InferenceEngine>>,
     pub db_conn: Arc<Mutex<rusqlite::Connection>>,
+    // channel sender to send client /generate requests into the engine worker thread
+    pub client_request_sender: Sender<ClientRequest>,
 }
 
 impl AppState {
-    pub fn new(engine: InferenceEngine, db_conn: rusqlite::Connection) -> Self {
+    pub fn new(
+        db_conn: rusqlite::Connection,
+        client_request_sender: Sender<ClientRequest>,
+    ) -> Self {
         Self {
-            // mutex to lock the engine to single client prompt, 
-            // now generation only happens one prompt at a time
-            engine: Arc::new(Mutex::new(engine)),
             db_conn: Arc::new(Mutex::new(db_conn)),
+            client_request_sender,
         }
     }
 }
+

@@ -21,8 +21,8 @@ pub struct GenerateRequest {
 }
 
 #[derive(Debug, Clone, Deserialize)]
+#[serde(default)]
 pub struct GenerationParams {
-    #[serde(default = "default_max_tokens")]
     // max tokens to be generated
     pub max_tokens: usize,
 }
@@ -30,11 +30,7 @@ pub struct GenerationParams {
 impl Default for GenerationParams {
     fn default() -> Self {
         Self {
-            max_tokens: default_max_tokens(),
+            max_tokens: DEFAULT_MAX_TOKENS,
         }
     }
-}
-
-const fn default_max_tokens() -> usize {
-    DEFAULT_MAX_TOKENS
 }
