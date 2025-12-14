@@ -175,9 +175,13 @@ pub async fn fetch_history(
     Json(request): Json<HistoryRequest>,
 ) -> Json<Vec<HistoryResponse>> {
     let conn = state.db_conn.lock().unwrap();
-    let user_id: i32 = get_user_id(&conn, &request.username).unwrap();
+    let user_id: i32 = match get_user_id(&conn, &request.username) {
+        Ok(id) => id,
+        // If the user doesn't exist yet, they simply have no history.
+        Err(_) => return Json(Vec::new()),
+    };
 
-    let mut stmt = conn.prepare(
+    let mut stmt = match conn.prepare(
         "SELECT chat_id, message FROM chats
         WHERE user_id = ?1 AND message_id = 
             (SELECT MAX(message_id) 
@@ -185,20 +189,27 @@ pub async fn fetch_history(
             WHERE c2.user_id = ?1 AND c2.chat_id = chats.chat_id
             )
         ORDER BY chat_id",
-    ).unwrap();
+    ) {
+        Ok(stmt) => stmt,
+        Err(_) => return Json(Vec::new()),
+    };
 
-    let history_iter = stmt.query_map([user_id], |row| {
+    let history_iter = match stmt.query_map([user_id], |row| {
         Ok(HistoryResponse {
             chat_id: row.get(0)?,
             latest_msg: row.get(1)?,
         })
-    }).unwrap();
+    }) {
+        Ok(iter) => iter,
+        Err(_) => return Json(Vec::new()),
+    };
 
     let mut history = Vec::new();
 
     for item in history_iter {
-        let record = item.unwrap();
-        history.push(record);
+        if let Ok(record) = item {
+            history.push(record);
+        }
     }
 
     Json(history)
