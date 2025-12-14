@@ -280,7 +280,7 @@ impl App {
 }
 
 async fn run_llm(tx: mpsc::Sender<String>, input:String, username:String) -> Result<()>{
-    let prompt = "<s>[INST] <<SYS>>You are a helpful assistant.<</SYS>> ".to_owned()+&input+"[/INST]";
+    let prompt = "<s>[INST] <<SYS>>You are a helpful assistant.<</SYS>> ".to_owned()+&input+" [/INST]";
     // tx.send(prompt.to_string()).await.ok();
 
     // send HTTP POST request with prompt to llm-server
