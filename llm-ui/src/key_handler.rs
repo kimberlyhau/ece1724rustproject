@@ -6,6 +6,7 @@ use anyhow::{Result};
 use tokio::time::{ Duration};
 use tokio::sync::mpsc;
 use ratatui::widgets::ListState;
+use std::time::Instant;
 
 use crate::app::OPTIONS as options;
 
@@ -226,6 +227,9 @@ fn process_incoming_message(app: &mut App, rx: &mut mpsc::Receiver<String>) {
                     app.input_mode = InputMode::Normal;
                     app.llm_messages.push(app.receiving.clone());
                     app.receiving.clear();
+                    // reset tok/s when response complete
+                    app.token_count = 0;
+                    app.stream_start = None;
                 }
                 _ => {}
             }
@@ -258,6 +262,11 @@ fn process_incoming_message(app: &mut App, rx: &mut mpsc::Receiver<String>) {
                 }
             }
             Screen::Chat => {
+                // begin tracking streaming tok/s
+                if app.stream_start.is_none() {
+                    app.stream_start = Some(Instant::now());
+                }
+                app.token_count = app.token_count.saturating_add(1);
                 app.receiving.push_str(&msg);
             }
             Screen::ColourSelection => {

@@ -6,6 +6,7 @@ use futures::StreamExt;
 use anyhow::Result;
 use ratatui::style::{Color, Style, Modifier};
 use ratatui::widgets::ListState;
+use std::time::Instant;
 
 pub enum InputMode {
     Normal,
@@ -127,6 +128,10 @@ pub struct App {
     pub receiving: String,
     pub chat_id: Option<i32>,
 
+    // Tracking for current streamed response
+    pub token_count: u64,
+    pub stream_start: Option<Instant>,
+
     pub buttons: Vec<Button>,
     pub selected_button: usize,
 }
@@ -149,6 +154,8 @@ impl App {
         scroll_offset: 0,
         receiving: String::new(),
         chat_id: None,
+        token_count: 0,
+        stream_start: None,
         buttons: vec![
                 Button::new("New Chat"),
                 Button::new("Resume Chat from History"),
@@ -241,6 +248,9 @@ impl App {
     pub fn submit_message(&mut self, tx: mpsc::Sender<String>) {
         self.input_mode = InputMode::Processing;
         self.messages.push(self.input.clone());
+        // reset tok/s for new response
+        self.token_count = 0;
+        self.stream_start = None;
         let input = self.input.clone();
         self.input.clear();
         self.reset_cursor();

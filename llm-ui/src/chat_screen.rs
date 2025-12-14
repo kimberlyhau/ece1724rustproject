@@ -73,9 +73,25 @@ pub fn render_chat(frame: &mut Frame, app: &App) {
             Style::default(),
         ),
         InputMode::Processing => (
-            vec![
-                "Processing ".into(),
-            ],
+            {
+                let mut spans = Vec::new();
+                spans.push("Processing".into());
+
+                if let Some(start_time) = app.stream_start {
+                    if app.token_count > 0 {
+                        let elapsed = start_time.elapsed().as_secs_f32();
+                        if elapsed > 0.0 {
+                            let rate = app.token_count as f32 / elapsed;
+                            spans.push(" | Tokens: ".into());
+                            spans.push(format!("{}", app.token_count).bold());
+                            spans.push(" | Rate: ".into());
+                            spans.push(format!("{:.1} tok/s", rate).bold());
+                        }
+                    }
+                }
+
+                spans
+            },
             Style::default(),
         ),
         InputMode::ColourSelection => (
