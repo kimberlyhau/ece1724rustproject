@@ -2,7 +2,7 @@ use rusqlite::{Connection, Result, params};
 use std::error::Error;
 use serde::{Serialize, Deserialize};
 use axum::{
-    extract::State,
+    extract::{State, Query},
     Json,
 };
 use std::sync::Arc;
@@ -19,6 +19,11 @@ pub struct HistoryRequest {
     pub username: String,
 }
 
+#[derive(Serialize, Deserialize, Clone)]
+pub struct NextChatIdRequest {
+    pub username: String,
+}
+
 #[derive(Serialize, Deserialize, Debug)]
 pub enum FetchResponse {
     Success {messages: Vec<(i32, String, String)>},
@@ -29,6 +34,11 @@ pub enum FetchResponse {
 pub struct HistoryResponse {
     pub chat_id: i32,
     pub latest_msg: String,
+}
+
+#[derive(Serialize, Deserialize, Clone)]
+pub struct NextChatIdResponse {
+    pub chat_id: i32,
 }
 
 pub fn get_user_id(conn: &Connection, name: &str) -> Result<i32> {
@@ -213,6 +223,20 @@ pub async fn fetch_history(
     }
 
     Json(history)
+}
+
+pub async fn get_next_chat_id(
+    State(state): State<Arc<AppState>>,
+    Query(request): Query<NextChatIdRequest>,
+) -> Json<NextChatIdResponse> {
+    let conn = state.db_conn.lock().unwrap();
+
+    // Ensure the user exists, then compute the next chat_id for this user.
+    add_user(&conn, request.username.clone()).ok();
+    let user_id = get_user_id(&conn, &request.username).unwrap_or(0);
+    let chat_id = next_chat_id(&conn, user_id).unwrap_or(1);
+
+    Json(NextChatIdResponse { chat_id })
 }
     
 /* 

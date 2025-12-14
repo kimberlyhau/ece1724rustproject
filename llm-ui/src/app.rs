@@ -67,6 +67,11 @@ struct HistoryResponse {
 }
 
 #[derive(Debug, Deserialize)]
+pub struct NextChatIdResponse {
+    pub chat_id: i32,
+}
+
+#[derive(Debug, Deserialize)]
 pub enum FetchResponses {
     Success {messages: Vec<(i32, String, String)>},
     Error {message: String},
@@ -120,6 +125,7 @@ pub struct App {
     
     pub scroll_offset: u16,
     pub receiving: String,
+    pub chat_id: Option<i32>,
 
     pub buttons: Vec<Button>,
     pub selected_button: usize,
@@ -142,6 +148,7 @@ impl App {
         user_colour_pick: None,
         scroll_offset: 0,
         receiving: String::new(),
+        chat_id: None,
         buttons: vec![
                 Button::new("New Chat"),
                 Button::new("Resume Chat from History"),
@@ -238,9 +245,10 @@ impl App {
         self.input.clear();
         self.reset_cursor();
         let username = self.username.clone();
+        let chat_id = self.chat_id;
         // eprintln!("Debug information: {:?}", input);
         tokio::spawn(async move {
-            let _ = run_llm(tx, input, username).await;
+            let _ = run_llm(tx, input, username, chat_id).await;
             // async_text_stream(tx, input);
         });
     }
@@ -262,13 +270,14 @@ impl App {
         self.input.clear();
         self.reset_cursor();
         self.screen = Screen::Chat;
-
     }
 
     pub fn fetch_chat(&mut self, tx: mpsc::Sender<String>) {
         self.input_mode = InputMode::Normal;
         self.llm_messages.clear();
         let input = self.input.clone();
+        let chat_id: i32 = input.trim().parse().unwrap_or(0);
+        self.chat_id = if chat_id > 0 { Some(chat_id) } else { None };
         self.input.clear();
         self.reset_cursor();
         let username = self.username.clone();
@@ -276,10 +285,23 @@ impl App {
             let _ = run_chat(tx, input, username).await;
         });
     }
-    
 }
 
-async fn run_llm(tx: mpsc::Sender<String>, input:String, username:String) -> Result<()>{
+pub async fn get_next_chat_id_for_user(username: String) -> Result<i32> {
+    let addr = "127.0.0.1:4000";
+    let url = format!("http://{addr}/next_chat_id");
+    let client = Client::new();
+    let response = client
+        .get(&url)
+        .query(&[("username", username)])
+        .send()
+        .await?;
+
+    let body = response.json::<NextChatIdResponse>().await?;
+    Ok(body.chat_id)
+}
+
+async fn run_llm(tx: mpsc::Sender<String>, input:String, username:String, chat_id: Option<i32>) -> Result<()>{
     let prompt = "<s>[INST] <<SYS>>You are a helpful assistant.<</SYS>> ".to_owned()+&input+" [/INST]";
     // tx.send(prompt.to_string()).await.ok();
 
@@ -289,7 +311,7 @@ async fn run_llm(tx: mpsc::Sender<String>, input:String, username:String) -> Res
     let client = Client::new();
     let response = client
         .post(&prompt_post_url)
-        .json(&json!({ "prompt": prompt , "username": username}))
+        .json(&json!({ "prompt": prompt , "username": username, "chat_id": chat_id}))
         .send()
         .await?;
 

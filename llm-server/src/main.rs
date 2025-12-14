@@ -12,7 +12,7 @@ use axum::{routing::get, routing::post, Router};
 use routes::generate::generate;
 use state::AppState;
 use tokio::net::TcpListener;
-use chat_history::{add_model, fetch_chat, fetch_history};
+use chat_history::{add_model, fetch_chat, fetch_history, get_next_chat_id};
 
 
 async fn test() -> &'static str {
@@ -59,6 +59,7 @@ async fn main() {
         .route("/generate", post(generate))
         .route("/fetch", post(fetch_chat))
         .route("/history", post(fetch_history))
+        .route("/next_chat_id", get(get_next_chat_id))
         .with_state(Arc::clone(&state));
 
     let addr = "127.0.0.1:4000";
@@ -73,4 +74,3 @@ async fn main() {
         .await
         .expect("failed to start server");
 }
-

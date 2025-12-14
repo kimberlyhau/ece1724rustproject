@@ -1,4 +1,4 @@
-use crate::app::{App, ChatOutcome, Screen, InputMode};
+use crate::app::{App, ChatOutcome, Screen, InputMode, get_next_chat_id_for_user};
 use crossterm::{
     event::{self, Event, KeyCode,KeyEventKind},
 };
@@ -32,6 +32,9 @@ pub async fn key_handler(app: &mut App, tx: mpsc::Sender<String>, rx: &mut mpsc:
                     match key.code {
                         KeyCode::Enter => {
                             if app.input == "0" {
+                                let username = app.username.clone();
+                                let chat_id = get_next_chat_id_for_user(username).await?;
+                                app.chat_id = Some(chat_id);
                                 app.start_new_chat();
                             } else {
                                 app.fetch_chat(tx.clone());
@@ -132,6 +135,9 @@ pub async fn key_handler(app: &mut App, tx: mpsc::Sender<String>, rx: &mut mpsc:
                             KeyCode::Down => app.next_button(),
                             KeyCode::Enter => {
                                 if app.selected_button==0{
+                                    let username = app.username.clone();
+                                    let chat_id = get_next_chat_id_for_user(username).await?;
+                                    app.chat_id = Some(chat_id);
                                     app.messages.clear();
                                     app.llm_messages.clear();
                                     app.input_mode = InputMode::Normal;
