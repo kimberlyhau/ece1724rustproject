@@ -3,7 +3,7 @@ use ratatui::{
     layout::{Constraint, Layout, Position},
     style::{Color, Style, Stylize},
     text::{Line, Text},
-    widgets::{Block, List, ListItem, Borders, Paragraph},
+    widgets::{Block, Borders, Paragraph, Wrap},
 };
 
 use crate::app::App;
@@ -44,17 +44,16 @@ pub fn render_history(frame: &mut Frame, app: &App) {
         input_area.y + 1,
     ));
 
-    let items: Vec<ListItem> = app.history_messages
+    let history_text: String = app
+        .history_messages
         .iter()
         .enumerate()
-        .map(|(i, msg)| {
-            ListItem::new(format!("{}: {}", i + 1, msg))
-        }).collect();
-    
-    let list = List::new(items)
+        .map(|(i, msg)| format!("{}: {}", i + 1, msg))
+        .collect();
+
+    let history_paragraph = Paragraph::new(history_text)
         .block(Block::default().borders(Borders::ALL).title("Chat History"))
-        .highlight_style(Style::default())
-        .highlight_symbol(">> ");
-    frame.render_widget(list, history_area);
-    
+        .wrap(Wrap { trim: false });
+
+    frame.render_widget(history_paragraph, history_area);
 }
