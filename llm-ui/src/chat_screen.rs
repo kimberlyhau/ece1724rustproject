@@ -171,8 +171,10 @@ pub fn render_chat(frame: &mut Frame, app: &App) {
                 // let llm_span = Span::styled(llm.to_string()+&b, Style::default().fg(app.llm_colour));
                 // spans.push(Line::from(vec![llm_span]));
                 for line in b.lines(){
-                    let llm_span = Span::styled(llm.to_string()+line, Style::default().fg(app.llm_colour));
-                    spans.push(Line::from(vec![llm_span]));
+                    if !line.is_empty(){
+                        let llm_span = Span::styled(llm.to_string()+line, Style::default().fg(app.llm_colour));
+                        spans.push(Line::from(vec![llm_span]));
+                    }
                 }
                 messages+=&format!("{} {}\n",user, a);
                 messages+=&format!("{} {}\n",llm, b);
@@ -187,16 +189,24 @@ pub fn render_chat(frame: &mut Frame, app: &App) {
                 // let llm_span = Span::styled(llm.to_string()+&b, Style::default().fg(app.llm_colour));
                 // spans.push(Line::from(vec![llm_span]));
                 for line in b.lines(){
-                    let llm_span = Span::styled(llm.to_string()+line, Style::default().fg(app.llm_colour));
-                    spans.push(Line::from(vec![llm_span]));
+                    if !line.is_empty(){
+                        let llm_span = Span::styled(llm.to_string()+line, Style::default().fg(app.llm_colour));
+                        spans.push(Line::from(vec![llm_span]));
+                    }
                 }
                 messages+=&format!("{} {}\n",llm, b);
             }
         }
     }
     if !app.receiving.is_empty(){
-        let llm_span = Span::styled(llm.to_string()+&app.receiving, Style::default().fg(app.llm_colour));
-        spans.push(Line::from(vec![llm_span]));
+        // let llm_span = Span::styled(llm.to_string()+&app.receiving, Style::default().fg(app.llm_colour));
+        // spans.push(Line::from(vec![llm_span]));
+        for line in app.receiving.lines(){
+            if !line.is_empty(){
+                let llm_span = Span::styled(llm.to_string()+line, Style::default().fg(app.llm_colour));
+                spans.push(Line::from(vec![llm_span]));
+            }
+        }
         messages+=&format!("{} {}\n",llm, app.receiving);
 
     }
