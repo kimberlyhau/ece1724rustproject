@@ -131,7 +131,7 @@ pub fn retrieve_chat(conn: &Connection, user_id: i32, chat_id: i32) -> Result<Ve
 
 pub async fn fetch_chat(
     State(state): State<Arc<AppState>>,
-    Json(request): Json<FetchRequest>,
+    Query(request): Query<FetchRequest>,
 ) -> Json<FetchResponse> {
     let conn = state.db_conn.lock().unwrap();
     // to validate fetch request, user exists in db, with valid chat id
@@ -182,7 +182,7 @@ pub async fn fetch_chat(
 
 pub async fn fetch_history(
     State(state): State<Arc<AppState>>,
-    Json(request): Json<HistoryRequest>,
+    Query(request): Query<HistoryRequest>,
 ) -> Json<Vec<HistoryResponse>> {
     let conn = state.db_conn.lock().unwrap();
     let user_id: i32 = match get_user_id(&conn, &request.username) {

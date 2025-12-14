@@ -395,8 +395,8 @@ async fn run_history(tx: mpsc::Sender<String>, username:String) -> Result<()> {
     let prompt_post_url = format!("http://{addr}/history");
     let client = Client::new();
     let response = client
-        .post(&prompt_post_url)
-        .json(&json!({ "username": username}))
+        .get(&prompt_post_url)
+        .query(&[("username", username)])
         .send()
         .await?;
     
@@ -418,8 +418,11 @@ async fn run_chat(tx: mpsc::Sender<String>, input:String, username:String) -> Re
     let prompt_post_url = format!("http://{addr}/fetch");
     let client = Client::new();
     let response = client
-        .post(&prompt_post_url)
-        .json(&json!({ "username": username, "chat_id": chat_id}))
+        .get(&prompt_post_url)
+        .query(&[
+            ("username", username),
+            ("chat_id", chat_id.to_string()),
+        ])
         .send()
         .await?;
     let messages = response.json::<FetchResponses>().await?;

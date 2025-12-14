@@ -57,8 +57,8 @@ async fn main() {
     let router = Router::new()
         .route("/", get(test))
         .route("/generate", post(generate))
-        .route("/fetch", post(fetch_chat))
-        .route("/history", post(fetch_history))
+        .route("/fetch", get(fetch_chat))
+        .route("/history", get(fetch_history))
         .route("/next_chat_id", get(get_next_chat_id))
         .with_state(Arc::clone(&state));
 
