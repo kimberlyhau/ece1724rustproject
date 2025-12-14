@@ -152,8 +152,12 @@ pub fn render_chat(frame: &mut Frame, app: &App) {
                 // messages.push(ListItem::new(user.to_string()+&a));
                 let user_span = Span::styled(user.to_string()+&a, Style::default().fg(app.user_colour));
                 spans.push(Line::from(vec![user_span]));
-                let llm_span = Span::styled(llm.to_string()+&b, Style::default().fg(app.llm_colour));
-                spans.push(Line::from(vec![llm_span]));
+                // let llm_span = Span::styled(llm.to_string()+&b, Style::default().fg(app.llm_colour));
+                // spans.push(Line::from(vec![llm_span]));
+                for line in b.lines(){
+                    let llm_span = Span::styled(llm.to_string()+line, Style::default().fg(app.llm_colour));
+                    spans.push(Line::from(vec![llm_span]));
+                }
                 messages+=&format!("{} {}\n",user, a);
                 messages+=&format!("{} {}\n",llm, b);
                 // messages.push(ListItem::new(llm.to_string()+&b));
@@ -164,8 +168,12 @@ pub fn render_chat(frame: &mut Frame, app: &App) {
                 messages+=&format!("{} {}\n",user, a);
             }
             Right(b) => {
-                let llm_span = Span::styled(llm.to_string()+&b, Style::default().fg(app.llm_colour));
-                spans.push(Line::from(vec![llm_span]));
+                // let llm_span = Span::styled(llm.to_string()+&b, Style::default().fg(app.llm_colour));
+                // spans.push(Line::from(vec![llm_span]));
+                for line in b.lines(){
+                    let llm_span = Span::styled(llm.to_string()+line, Style::default().fg(app.llm_colour));
+                    spans.push(Line::from(vec![llm_span]));
+                }
                 messages+=&format!("{} {}\n",llm, b);
             }
         }
