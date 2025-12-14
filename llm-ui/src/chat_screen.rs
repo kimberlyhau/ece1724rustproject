@@ -19,7 +19,7 @@ pub fn render_chat(frame: &mut Frame, app: &App) {
     let mut scroll_offset = app.scroll_offset;
 
     let vertical = Layout::vertical([
-        Constraint::Min(1),
+        Constraint::Length(5),
         Constraint::Length(1),
         // Constraint::Min(1),
         Constraint::Min(1),

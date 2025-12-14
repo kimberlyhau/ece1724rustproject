@@ -11,7 +11,7 @@ use crate::app::App;
 
 pub fn render_menu(frame: &mut Frame, app: &mut App) {
     let vertical = Layout::vertical([
-        Constraint::Min(1),
+        Constraint::Length(6),
         Constraint::Min(12),
     ]);
     let [title_banner,buttons] = vertical.areas(frame.area());
