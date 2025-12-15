@@ -23,7 +23,7 @@ pub fn render_chat(frame: &mut Frame, app: &App) {
         Constraint::Length(1),
         // Constraint::Min(1),
         Constraint::Min(1),
-        Constraint::Length(3),
+        Constraint::Length(6),
     ]);
     let [title_banner,help_area, response_area, input_area] = vertical.areas(frame.area());
     let horizontal = Layout::default()
@@ -114,26 +114,32 @@ pub fn render_chat(frame: &mut Frame, app: &App) {
     let input =  match app.input_mode {
         InputMode::Processing => Paragraph::new("Wait for response...")
             .style(Style::default())
-            .block(Block::bordered().title("Input")),
+            .block(Block::bordered().title("Input"))
+            .wrap(Wrap { trim: false }),
         InputMode::Normal => Paragraph::new("Enter a prompt!")
             .style(Style::default())
-            .block(Block::bordered().title("Input")),
+            .block(Block::bordered().title("Input"))
+            .wrap(Wrap { trim: false }),
         InputMode::Editing => 
             Paragraph::new(app.input.as_str())
             .style(Style::default().fg(Color::Yellow))
-            .block(Block::bordered().title("Input")),
+            .block(Block::bordered().title("Input"))
+            .wrap(Wrap { trim: false }),
         InputMode::Fetching => 
             Paragraph::new(app.input.as_str())
             .style(Style::default().fg(Color::Cyan))
-            .block(Block::bordered().title("Chat ID Input")),
+            .block(Block::bordered().title("Chat ID Input"))
+            .wrap(Wrap { trim: false }),
         InputMode::ColourSelection => 
             Paragraph::new(app.input.as_str())
             .style(Style::default().fg(Color::Yellow))
-            .block(Block::bordered().title("Colour Input")),
+            .block(Block::bordered().title("Colour Input"))
+            .wrap(Wrap { trim: false }),
         InputMode::MainMenu => 
             Paragraph::new(app.input.as_str())
             .style(Style::default().fg(Color::Yellow))
-            .block(Block::bordered().title("Main Menu")),
+            .block(Block::bordered().title("Main Menu"))
+            .wrap(Wrap { trim: false }),
     };
     
     frame.render_widget(input, input_area);
@@ -144,19 +150,26 @@ pub fn render_chat(frame: &mut Frame, app: &App) {
         // Make the cursor visible and ask ratatui to put it at the specified coordinates after
         // rendering
         #[allow(clippy::cast_possible_truncation)]
-        InputMode::Editing => frame.set_cursor_position(Position::new(
-            // Draw the cursor at the current position in the input field.
-            // This position is can be controlled via the left and right arrow key
-            input_area.x + app.character_index as u16 + 1,
-            // Move one line down, from the border to the input line
-            input_area.y + 1,
-        )),
+        InputMode::Editing => {
+            let inner_width = input_area.width.saturating_sub(2).max(1);
+            let cursor_row = (app.character_index as u16) / inner_width;
+            let cursor_col = (app.character_index as u16) % inner_width;
+            frame.set_cursor_position(Position::new(
+                input_area.x + cursor_col + 1,
+                input_area.y + cursor_row + 1,
+            ))
+        }
         InputMode::Processing => {},
         InputMode::ColourSelection => {},
-        InputMode::Fetching => frame.set_cursor_position(Position::new(
-            input_area.x + app.character_index as u16 + 1,
-            input_area.y + 1,
-        )),
+        InputMode::Fetching => {
+            let inner_width = input_area.width.saturating_sub(2).max(1);
+            let cursor_row = (app.character_index as u16) / inner_width;
+            let cursor_col = (app.character_index as u16) % inner_width;
+            frame.set_cursor_position(Position::new(
+                input_area.x + cursor_col + 1,
+                input_area.y + cursor_row + 1,
+            ))
+        }
         InputMode::MainMenu => {},
     }
 
