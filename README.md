@@ -44,6 +44,7 @@ To build a local, Rust-based LLM chat system that provides responses token-by-to
 - Schedule inference fairly across multiple active chats
 
 ## Features
+![High-level diagram of implementation.](high_level_diagram.png)
 ### 1. Inference Engine
 - A backend engine that loads and runs the TinyLlama 1.1B chat model using the `candle` crate.
 - Responsible for all model execution and token generation.
@@ -187,5 +188,6 @@ This section describes how a user can chat with the LLM through the terminal UI.
 [4] Axum Web Framework
 [5] Rusqlite: Rust bindings to SQLite
 [6] Server-Sent Events
+
 
 
