@@ -7,7 +7,8 @@ Link: https://github.com/user-attachments/assets/2ca82d50-e430-407c-8f5e-cecb06d
 
 ## Demonstration
 
-Link: https://github.com/user-attachments/assets/64287dd9-f1bc-47a1-8c1b-0e4a824e462f
+Link: https://github.com/user-attachments/assets/dbfa4aa6-7ada-4d53-882d-224c90b5cab5
+
 
 
 
@@ -186,4 +187,5 @@ This section describes how a user can chat with the LLM through the terminal UI.
 [4] Axum Web Framework
 [5] Rusqlite: Rust bindings to SQLite
 [6] Server-Sent Events
+
 
