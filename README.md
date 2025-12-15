@@ -19,6 +19,8 @@ Link: https://github.com/user-attachments/assets/dbfa4aa6-7ada-4d53-882d-224c90b
 | **Shafin** |  1006945406 | shafinul.haque@mail.utoronto.ca |
 | **Alan** | 1007191316 | aloe.cao@mail.utoronto.ca |
 
+Lines of Rust Code: 1845
+
 ## Motivation
 This project idea is inspired by one of the ideas suggested on the course page: to build an LLM inference backend with streaming. We chose this project idea as LLMs have become widely used over the last few years, while still being relatively new to the Rust (and other programming languages) ecosystem. Therefore, we are interested in building a user application for LLM use which can build upon the currently available Rust inference engines such as Candle and Mistral.rs, and implement token-by-token streaming during inference, a feature that is currently unsupported by these engines.
 
