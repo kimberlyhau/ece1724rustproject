@@ -211,7 +211,7 @@ pub fn render_chat(frame: &mut Frame, app: &App) {
 
     }
     // Count total wrapped lines
-    let total_lines = count_wrapped_lines(&messages, chat_area.width)+2;
+    let total_lines = count_wrapped_lines(&messages, chat_area.width)+5;
 
     // Clamp scroll
     scroll_offset = scroll_offset.min(total_lines.saturating_sub(chat_area.height));
