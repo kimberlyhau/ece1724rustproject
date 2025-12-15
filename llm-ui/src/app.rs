@@ -250,7 +250,7 @@ impl App {
 
         // following chat template for TinyLlama-1.1B-Chat-v1.0 model from HuggingFace
         prompt.push_str("<|system|>\n");
-        prompt.push_str("You are a helpful assistant. You are able to remember context and details about the user through their past messages.");
+        prompt.push_str("You are a helpful assistant. You are able to remember context and details about the user through their going through past messages.");
         prompt.push_str("</s>\n");
 
         // build context from chat history
