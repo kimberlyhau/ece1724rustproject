@@ -1,4 +1,4 @@
-# ECE1724 Final Project: LLM Inference Service 
+# ECE1724 Final Project: LLM Chat Interface & Inference Service 
 
 ## Presentation
 
@@ -190,6 +190,7 @@ This section describes how a user can chat with the LLM through the terminal UI.
 [4] Axum Web Framework
 [5] Rusqlite: Rust bindings to SQLite
 [6] Server-Sent Events
+
 
 
 
